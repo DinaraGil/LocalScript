@@ -59,6 +59,12 @@ def hello(prompt: Prompt):
         messages=ctx.contextMessages,
         api_base = API_BASE,
         request_timeout = 120,
+        options={
+            "num_ctx": 4096, 
+            "num_predict": 256,
+            "batch": 1,
+            "parallel": 1
+        }
     )
 
     contextResponse = response.choices[0].message.content
