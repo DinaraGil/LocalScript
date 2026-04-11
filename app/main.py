@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,15 +21,7 @@ from app.agent.pipeline import AgentPipeline
 
 app = FastAPI(title="LocalScript API", version="1.0.0")
 
-STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
 pipeline = AgentPipeline()
-
-
-@app.get("/")
-async def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
 
 
 @app.post("/generate", response_model=GenerateResponse)
