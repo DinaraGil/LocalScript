@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LocalScript — Lua Code Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/lua.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>LocalScript</h2>
+        <button id="newChatBtn" title="New Chat">+ New</button>
+      </div>
+      <div id="sessionList" class="session-list"></div>
+    </aside>
+    <main class="chat-area">
+      <div id="messages" class="messages">
+        <div class="welcome">
+          <h1>LocalScript</h1>
+          <p>AI-agent for Lua code generation</p>
+          <p class="hint">Describe your task in natural language (RU/EN)</p>
+        </div>
+      </div>
+      <form id="chatForm" class="input-area">
+        <textarea id="userInput" placeholder="Describe your Lua task..." rows="2"></textarea>
+        <button type="submit" id="sendBtn">Send</button>
+      </form>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

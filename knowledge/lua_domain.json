@@ -1,0 +1,62 @@
+[
+  {
+    "category": "domain_rules",
+    "text": "MWS Octapi LowCode Lua platform rules:\n- Lua 5.5 is used.\n- Scripts are embedded as JsonString: lua{ -- code }lua\n- Variables declared in LowCode are stored in wf.vars (e.g. wf.vars.myVar).\n- Variables received at workflow startup (from 'variables') are stored in wf.initVariables (e.g. wf.initVariables.recallTime).\n- Do NOT use JsonPath to access variables; use direct dot-notation access.\n- To create a new array: _utils.array.new()\n- To mark an existing table as an array: _utils.array.markAsArray(arr)\n- Allowed types: nil, boolean, number, string, table, function, array.\n- Allowed constructs: if/then/else, while/do/end, for/do/end, repeat/until."
+  },
+  {
+    "category": "example",
+    "text": "Task: Get the last element from an email list.\nContext: wf.vars.emails is an array of email strings.\nLua code:\nreturn wf.vars.emails[#wf.vars.emails]\nJSON wrapper:\n{\"lastEmail\":\"lua{return wf.vars.emails[#wf.vars.emails]}lua\"}"
+  },
+  {
+    "category": "example",
+    "text": "Task: Increment the variable try_count_n on each iteration.\nContext: wf.vars.try_count_n is a number.\nLua code:\nreturn wf.vars.try_count_n + 1\nJSON wrapper:\n{\"try_count_n\":\"lua{return wf.vars.try_count_n + 1}lua\"}"
+  },
+  {
+    "category": "example",
+    "text": "Task: From REST response data, clear all fields except ID, ENTITY_ID, and CALL.\nContext: wf.vars.RESTbody.result is an array of tables with various keys.\nLua code:\nresult = wf.vars.RESTbody.result\nfor _, filteredEntry in pairs(result) do\n  for key, value in pairs(filteredEntry) do\n    if key ~= \"ID\" and key ~= \"ENTITY_ID\" and key ~= \"CALL\" then\n      filteredEntry[key] = nil\n    end\n  end\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Convert time from 'YYYYMMDD' and 'HHMMSS' format to ISO 8601 string.\nContext: wf.vars.json.IDOC.ZCDF_HEAD.DATUM contains date as 'YYYYMMDD', wf.vars.json.IDOC.ZCDF_HEAD.TIME contains time as 'HHMMSS'.\nLua code:\nDATUM = wf.vars.json.IDOC.ZCDF_HEAD.DATUM\nTIME = wf.vars.json.IDOC.ZCDF_HEAD.TIME\nlocal function safe_sub(str, start, finish)\n  local s = string.sub(str, start, math.min(finish, #str))\n  return s ~= \"\" and s or \"00\"\nend\nyear = safe_sub(DATUM, 1, 4)\nmonth = safe_sub(DATUM, 5, 6)\nday = safe_sub(DATUM, 7, 8)\nhour = safe_sub(TIME, 1, 2)\nminute = safe_sub(TIME, 3, 4)\nsecond = safe_sub(TIME, 5, 6)\niso_date = string.format('%s-%s-%sT%s:%s:%s.00000Z', year, month, day, hour, minute, second)\nreturn iso_date"
+  },
+  {
+    "category": "example",
+    "text": "Task: Ensure all 'items' fields in ZCDF_PACKAGES are always arrays, even if they are a single object.\nContext: wf.vars.json.IDOC.ZCDF_HEAD.ZCDF_PACKAGES is an array of packages, each may have 'items' as an object or array.\nLua code:\nfunction ensureArray(t)\n  if type(t) ~= \"table\" then\n    return {t}\n  end\n  local isArray = true\n  for k, v in pairs(t) do\n    if type(k) ~= \"number\" or math.floor(k) ~= k then\n      isArray = false\n      break\n    end\n  end\n  return isArray and t or {t}\nend\nfunction ensureAllItemsAreArrays(objectsArray)\n  if type(objectsArray) ~= \"table\" then\n    return objectsArray\n  end\n  for _, obj in ipairs(objectsArray) do\n    if type(obj) == \"table\" and obj.items then\n      obj.items = ensureArray(obj.items)\n    end\n  end\n  return objectsArray\nend\nreturn ensureAllItemsAreArrays(wf.vars.json.IDOC.ZCDF_HEAD.ZCDF_PACKAGES)"
+  },
+  {
+    "category": "example",
+    "text": "Task: Filter array elements to include only those with values in 'Discount' or 'Markdown' fields.\nContext: wf.vars.parsedCsv is an array of tables with SKU, Discount, Markdown fields. Some values are empty strings or nil.\nLua code:\nlocal result = _utils.array.new()\nlocal items = wf.vars.parsedCsv\nfor _, item in ipairs(items) do\n  if (item.Discount ~= \"\" and item.Discount ~= nil) or (item.Markdown ~= \"\" and item.Markdown ~= nil) then\n    table.insert(result, item)\n  end\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Add a variable with the square of a number.\nContext: The number is '5' as a string.\nLua code:\n{\"num\": \"lua{return tonumber('5')}lua\", \"squared\": \"lua{local n = tonumber('5')\\nreturn n * n}lua\"}"
+  },
+  {
+    "category": "example",
+    "text": "Task: Convert time in variable recallTime to Unix timestamp format.\nContext: wf.initVariables.recallTime contains ISO 8601 datetime string like '2023-10-15T15:30:00+00:00'.\nLua code:\nlocal iso_time = wf.initVariables.recallTime\nlocal days_in_month = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}\nif not iso_time or not iso_time:match(\"^%d%d%d%d%-%d%d%-%d%dT\") then\n  return nil\nend\nlocal function is_leap_year(year)\n  return (year % 4 == 0 and year % 100 ~= 0) or (year % 400 == 0)\nend\nlocal function days_since_epoch(year, month, day)\n  local days = 0\n  for y = 1970, year - 1 do\n    days = days + (is_leap_year(y) and 366 or 365)\n  end\n  for m = 1, month - 1 do\n    days = days + days_in_month[m]\n    if m == 2 and is_leap_year(year) then\n      days = days + 1\n    end\n  end\n  days = days + (day - 1)\n  return days\nend\nlocal function parse_iso8601_to_epoch(iso_str)\n  if not iso_str then error(\"Date is nil\") end\n  local year, month, day, hour, min, sec, ms, offset_sign, offset_hour, offset_min =\n    iso_str:match(\"(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)%.(%d+)([+-])(%d+):(%d+)\")\n  if not year then\n    year, month, day, hour, min, sec, offset_sign, offset_hour, offset_min =\n      iso_str:match(\"(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)([+-])(%d+):(%d+)\")\n    ms = 0\n  end\n  if not year then error(\"Cannot parse date: \" .. tostring(iso_str)) end\n  year = tonumber(year); month = tonumber(month); day = tonumber(day)\n  hour = tonumber(hour); min = tonumber(min); sec = tonumber(sec)\n  offset_hour = tonumber(offset_hour); offset_min = tonumber(offset_min)\n  local total_days = days_since_epoch(year, month, day)\n  local total_seconds = total_days * 86400 + hour * 3600 + min * 60 + sec\n  local offset_seconds = offset_hour * 3600 + offset_min * 60\n  if offset_sign == \"-\" then offset_seconds = -offset_seconds end\n  return total_seconds - offset_seconds\nend\nlocal epoch_seconds = parse_iso8601_to_epoch(iso_time)\nreturn epoch_seconds"
+  },
+  {
+    "category": "lua_reference",
+    "text": "Lua string functions reference:\n- string.sub(s, i, j): returns substring from position i to j\n- string.format(fmt, ...): formatted string output\n- string.match(s, pattern): pattern matching, returns captures\n- string.find(s, pattern): find pattern in string\n- string.gsub(s, pattern, repl): global substitution\n- string.len(s) or #s: string length\n- string.upper(s), string.lower(s): case conversion\n- string.rep(s, n): repeat string n times\n- string.byte(s), string.char(n): character/byte conversion"
+  },
+  {
+    "category": "lua_reference",
+    "text": "Lua table functions reference:\n- table.insert(t, value) or table.insert(t, pos, value): insert element\n- table.remove(t, pos): remove element at position\n- table.sort(t, comp): sort table in-place\n- table.concat(t, sep): concatenate array elements with separator\n- #t: length of array part of table\n- pairs(t): iterate over all key-value pairs\n- ipairs(t): iterate over array part (1, 2, 3, ...)\n- next(t, key): raw table iteration"
+  },
+  {
+    "category": "lua_reference",
+    "text": "Lua math functions reference:\n- math.floor(x): round down\n- math.ceil(x): round up\n- math.abs(x): absolute value\n- math.max(a, b, ...): maximum value\n- math.min(a, b, ...): minimum value\n- math.fmod(x, y): modulo\n- tonumber(s): convert string to number\n- tostring(n): convert number to string"
+  },
+  {
+    "category": "lua_reference",
+    "text": "Lua type checking and conversion:\n- type(v): returns type as string ('nil', 'boolean', 'number', 'string', 'table', 'function')\n- tonumber(s): convert to number, returns nil on failure\n- tostring(v): convert to string\n- Checking if value is array vs table: iterate with pairs() and check if all keys are consecutive integers starting from 1."
+  },
+  {
+    "category": "lua_patterns",
+    "text": "Lua pattern matching (used in string.match, string.find, string.gsub):\n- %d: digit\n- %a: letter\n- %w: alphanumeric\n- %s: whitespace\n- %p: punctuation\n- .: any character\n- *: zero or more (greedy)\n- +: one or more\n- -: zero or more (lazy)\n- ?: zero or one\n- ^: start of string (in pattern)\n- $: end of string (in pattern)\n- [set]: character class\n- Captures: parentheses () create captures returned by match()"
+  },
+  {
+    "category": "domain_rules",
+    "text": "MWS Octapi LowCode JSON wrapper format:\nLua scripts are embedded within JSON values using the format:\n\"fieldName\": \"lua{ <lua code here> }lua\"\n\nExamples:\n{\"result\": \"lua{return wf.vars.myValue}lua\"}\n{\"count\": \"lua{return wf.vars.counter + 1}lua\"}\n\nThe lua code inside the wrapper should use return to produce the value that will be assigned to the JSON field.\nMultiple fields can each have their own lua block."
+  }
+]
