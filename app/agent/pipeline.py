@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 
@@ -33,14 +33,42 @@ def extract_lua_code(text: str) -> str | None:
         m = re.search(pat, text, re.DOTALL)
         if m:
             return m.group(1).strip()
+    return None
 
+
+def clean_code(code: str) -> str:
+    code = code.strip()
+    # strip lua{...}lua wrapper if model included it
+    m = re.match(r'^lua\s*\{(.*)\}\s*lua$', code, re.DOTALL)
+    if m:
+        code = m.group(1).strip()
+    # strip surrounding quotes
+    if (code.startswith('"') and code.endswith('"')) or (code.startswith("'") and code.endswith("'")):
+        code = code[1:-1]
+    # remove print() wrappers — replace print(X) at end with return X
+    code = re.sub(r'\bprint\((.+?)\)\s*$', r'return \1', code)
+    return code
+
+
+def fallback_extract(text: str) -> str | None:
     lines = text.strip().split("\n")
-    code_lines = [
-        l for l in lines
-        if not l.startswith("#") and not l.startswith("//") and l.strip()
-    ]
-    if code_lines and any(kw in "\n".join(code_lines) for kw in ("function", "return", "local", "for ", "if ", "wf.")):
-        return "\n".join(code_lines)
+    code_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("```") or stripped.startswith("---"):
+            continue
+        if any(stripped.lower().startswith(w) for w in [
+            "here", "this", "the ", "note", "below", "above", "вот", "этот", "данный", "ниже",
+        ]):
+            continue
+        code_lines.append(line)
+
+    joined = "\n".join(code_lines)
+    lua_keywords = ("return", "local", "function", "for ", "if ", "while ", "wf.", "end", "table.", "string.", "_utils")
+    if code_lines and any(kw in joined for kw in lua_keywords):
+        return joined
     return None
 
 
@@ -48,12 +76,19 @@ def is_clarifying_question(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    code = extract_lua_code(text)
-    if code:
+    if "```" in stripped:
         return False
-    return stripped.endswith("?") or any(
-        kw in stripped.lower() for kw in ["уточни", "clarify", "could you", "можете", "какой", "какие", "что именно", "what exactly"]
-    )
+    lua_keywords = ("return ", "local ", "function ", "wf.", "for ", "if ", "table.", "_utils")
+    if any(kw in stripped for kw in lua_keywords):
+        return False
+    if stripped.endswith("?"):
+        return True
+    question_markers = [
+        "уточни", "clarify", "could you", "можете", "какой", "какие",
+        "что именно", "what exactly", "какую", "какое", "укажите",
+        "please specify", "which ", "что вы имеете",
+    ]
+    return any(kw in stripped.lower() for kw in question_markers)
 
 
 class AgentPipeline:
@@ -67,8 +102,11 @@ class AgentPipeline:
             "messages": messages,
             "stream": False,
             "options": {
-                "num_ctx": 4096,
-                "num_predict": 256,
+                "num_ctx": settings.ollama_num_ctx,
+                "num_predict": settings.ollama_num_predict,
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "repeat_penalty": 1.1,
             },
         }
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -80,7 +118,7 @@ class AgentPipeline:
     def _build_system_prompt(self, user_query: str) -> str:
         context_chunks = retrieve(user_query, top_k=3)
         if context_chunks:
-            rag_section = "\nRELEVANT EXAMPLES:\n" + "\n---\n".join(context_chunks) + "\n"
+            rag_section = "\n=== RELEVANT DOMAIN KNOWLEDGE ===\n" + "\n---\n".join(context_chunks) + "\n"
         else:
             rag_section = ""
         return SYSTEM_PROMPT.format(rag_context=rag_section)
@@ -110,12 +148,16 @@ class AgentPipeline:
 
         code = extract_lua_code(response_text)
         if not code:
+            code = fallback_extract(response_text)
+        if not code:
             return PipelineResult(
                 code=response_text.strip(),
                 full_response=response_text,
                 is_valid=None,
                 iterations=1,
             )
+
+        code = clean_code(code)
 
         validation = await validate_lua(code)
         iterations = 1
@@ -128,8 +170,10 @@ class AgentPipeline:
 
             response_text = await self._llm_call(messages)
             new_code = extract_lua_code(response_text)
+            if not new_code:
+                new_code = fallback_extract(response_text)
             if new_code:
-                code = new_code
+                code = clean_code(new_code)
             validation = await validate_lua(code)
 
         return PipelineResult(

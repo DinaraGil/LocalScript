@@ -27,7 +27,13 @@ pipeline = AgentPipeline()
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
     result = await pipeline.run(req.prompt)
-    return GenerateResponse(code=result.code)
+    is_question = not result.code and result.full_response.strip().endswith("?")
+    return GenerateResponse(
+        code=result.code if result.code else result.full_response,
+        is_valid=result.is_valid,
+        is_question=is_question,
+        iterations=result.iterations,
+    )
 
 
 @app.post("/chat/sessions", response_model=SessionCreateOut)

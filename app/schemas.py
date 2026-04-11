@@ -12,6 +12,9 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     code: str
+    is_valid: bool | None = None
+    is_question: bool = False
+    iterations: int = 1
 
 
 class SessionOut(BaseModel):

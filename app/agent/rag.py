@@ -82,7 +82,7 @@ def index_knowledge() -> None:
     logger.info("Indexed %d knowledge entries into Qdrant", len(points))
 
 
-def retrieve(query: str, top_k: int = 3) -> list[str]:
+def retrieve(query: str, top_k: int = 5, min_score: float = 0.3) -> list[str]:
     try:
         embedder = get_embedder()
         client = get_qdrant()
@@ -92,7 +92,11 @@ def retrieve(query: str, top_k: int = 3) -> list[str]:
             query=query_vec,
             limit=top_k,
         )
-        return [hit.payload["text"] for hit in results.points if hit.payload]
+        return [
+            hit.payload["text"]
+            for hit in results.points
+            if hit.payload and hit.score >= min_score
+        ]
     except Exception:
         logger.exception("RAG retrieval failed, continuing without context")
         return []
