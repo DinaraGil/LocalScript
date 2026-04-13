@@ -102,3 +102,18 @@ Code:
 
 Error: {error}
 """
+
+SUMMARIZE_PROMPT = """\
+Summarize the following conversation between a user and a Lua code assistant.
+Keep: what tasks were solved, what variables/structures were used, what code was generated.
+Be very concise (3-5 sentences max). Write in the same language as the conversation.
+
+{previous_summary}\
+Conversation to summarize:
+{conversation}
+"""
+
+SUMMARY_INJECTION = """\
+=== SESSION CONTEXT (summary of earlier conversation) ===
+{summary}
+=== END SESSION CONTEXT ==="""

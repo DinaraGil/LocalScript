@@ -10,6 +10,7 @@ from app.config import settings
 from app.agent.prompts import SYSTEM_PROMPT, FIX_PROMPT_TEMPLATE
 from app.agent.validator import validate_lua
 from app.agent.rag import retrieve
+from app.agent.context_manager import ContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ class PipelineResult:
     is_valid: bool | None = None
     is_question: bool = False
     iterations: int = 1
+    updated_summary: str | None = None
+    summarized_count: int = 0
 
 
 def extract_lua_code(text: str) -> str | None:
@@ -96,6 +99,7 @@ class AgentPipeline:
     def __init__(self) -> None:
         self.ollama_url = f"{settings.ollama_base_url}/api/chat"
         self.model = settings.ollama_model
+        self.context_manager = ContextManager(llm_call=self._llm_call)
 
     async def _llm_call(self, messages: list[dict]) -> str:
         payload = {
@@ -128,14 +132,29 @@ class AgentPipeline:
         self,
         user_prompt: str,
         chat_history: list[dict] | None = None,
+        existing_summary: str | None = None,
+        summarized_count: int = 0,
     ) -> PipelineResult:
         system_content = self._build_system_prompt(user_prompt)
-        messages: list[dict] = [{"role": "system", "content": system_content}]
+
+        updated_summary: str | None = existing_summary
+        new_summarized_count = summarized_count
 
         if chat_history:
-            messages.extend(chat_history)
+            ctx = await self.context_manager.prepare(
+                system_prompt=system_content,
+                chat_history=chat_history,
+                existing_summary=existing_summary,
+                summarized_count=summarized_count,
+            )
+            messages = ctx.messages
+            updated_summary = ctx.summary
+            new_summarized_count = ctx.summarized_count
         else:
-            messages.append({"role": "user", "content": user_prompt})
+            messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_prompt},
+            ]
 
         response_text = await self._llm_call(messages)
 
@@ -146,6 +165,8 @@ class AgentPipeline:
                 is_valid=None,
                 is_question=True,
                 iterations=1,
+                updated_summary=updated_summary,
+                summarized_count=new_summarized_count,
             )
 
         code = extract_lua_code(response_text)
@@ -157,6 +178,8 @@ class AgentPipeline:
                 full_response=response_text,
                 is_valid=None,
                 iterations=1,
+                updated_summary=updated_summary,
+                summarized_count=new_summarized_count,
             )
 
         code = clean_code(code)
@@ -183,4 +206,6 @@ class AgentPipeline:
             full_response=response_text,
             is_valid=validation.is_valid,
             iterations=iterations,
+            updated_summary=updated_summary,
+            summarized_count=new_summarized_count,
         )

@@ -26,6 +26,8 @@ class MessageData:
 class SessionData:
     id: uuid.UUID
     title: str | None = None
+    summary: str | None = None
+    summarized_count: int = 0
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     messages: list[MessageData] = field(default_factory=list)
@@ -35,6 +37,8 @@ def _session_to_dict(session: SessionData) -> dict:
     return {
         "id": str(session.id),
         "title": session.title,
+        "summary": session.summary,
+        "summarized_count": session.summarized_count,
         "created_at": session.created_at.isoformat(),
         "updated_at": session.updated_at.isoformat(),
         "messages": [
@@ -70,6 +74,8 @@ def _dict_to_session(d: dict) -> SessionData:
     return SessionData(
         id=uuid.UUID(d["id"]),
         title=d.get("title"),
+        summary=d.get("summary"),
+        summarized_count=d.get("summarized_count", 0),
         created_at=datetime.fromisoformat(d["created_at"]),
         updated_at=datetime.fromisoformat(d["updated_at"]),
         messages=messages,
@@ -157,6 +163,20 @@ class ChatStore:
 
             await asyncio.to_thread(self._write_sync, session)
             return msg
+
+    async def update_summary(
+        self,
+        session_id: uuid.UUID,
+        summary: str,
+        summarized_count: int,
+    ) -> None:
+        async with self._lock_for(session_id):
+            session = await asyncio.to_thread(self._read_sync, session_id)
+            if session is None:
+                raise ValueError(f"Session {session_id} not found")
+            session.summary = summary
+            session.summarized_count = summarized_count
+            await asyncio.to_thread(self._write_sync, session)
 
     async def get_messages(self, session_id: uuid.UUID) -> list[MessageData]:
         session = await asyncio.to_thread(self._read_sync, session_id)

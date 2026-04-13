@@ -101,7 +101,17 @@ async def send_message(session_id: uuid.UUID, msg: MessageIn):
     messages = await store.get_messages(session_id)
     chat_history = [{"role": m.role, "content": m.content} for m in messages]
 
-    result = await pipeline.run(msg.content, chat_history=chat_history)
+    result = await pipeline.run(
+        msg.content,
+        chat_history=chat_history,
+        existing_summary=session.summary,
+        summarized_count=session.summarized_count,
+    )
+
+    if result.updated_summary and result.updated_summary != session.summary:
+        await store.update_summary(
+            session_id, result.updated_summary, result.summarized_count,
+        )
 
     assistant_msg = await store.add_message(
         session_id=session_id,

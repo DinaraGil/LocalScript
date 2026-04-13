@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     qdrant_collection: str = "lua_knowledge"
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     chat_storage_dir: str = "./chat_storage"
+    summary_max_tokens: int = 400
+    context_reserve_ratio: float = 0.9
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
