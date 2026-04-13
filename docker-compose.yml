@@ -63,7 +63,7 @@ services:
     volumes:
       - chat_data:/data/chat_storage
     ports:
-      - "18080:18080"
+      - "18080:8080"
     depends_on:
       qdrant:
         condition: service_healthy
