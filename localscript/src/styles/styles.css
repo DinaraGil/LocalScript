@@ -203,11 +203,11 @@ svg * {
   }
 }
 :root {
-  --color-bg: #00111A;
+  --color-bg: #202020;
   --color-blue: #003049;
   --color-light-blue: blue;
   --color-text: white;
-  --color-dark-grey: #1E1E1E;
+  --color-dark-grey: ##303030;
   --color-light-grey: #B3B3B3;
   --color-grey-hover: #5A5A5A;
   --color-grey-text: #D9D9D9;

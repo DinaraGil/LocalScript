@@ -1,9 +1,11 @@
-export default function ChatInstance({ id }) {
+export default function ChatInstance({ id, title }) {
     return (
-        <div class="sidebar__history-item">
-            <a href={`/?id=${id}`}>
-                <h4 class="sidebar__history-title">{`${id}`} hello</h4>
-            </a>
-        </div>
+        <a href={`/?id=${id}`} className="flex justify-center items-center 
+            h-4 p-5 backdrop-brightness-200
+            hover:backdrop-brightness-175
+            rounded-[7px] align-middle
+            ">
+            <h4 className="truncate w-[12vw]">{`${title}`}</h4>
+        </a>
     )
 }
