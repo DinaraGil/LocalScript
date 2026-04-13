@@ -11,7 +11,8 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    code: str
+    code: str = ""
+    message: str = ""
     is_valid: bool | None = None
     is_question: bool = False
     iterations: int = 1
@@ -23,8 +24,6 @@ class SessionOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_message: str | None = None
-
-    model_config = {"from_attributes": True}
 
 
 class MessageIn(BaseModel):
@@ -38,9 +37,8 @@ class MessageOut(BaseModel):
     content: str
     lua_code: str | None
     is_valid: bool | None
+    is_question: bool = False
     created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 class SessionCreateOut(BaseModel):

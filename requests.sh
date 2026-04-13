@@ -15,16 +15,22 @@ run_test() {
     echo "TEST: $name"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     local resp
-    resp=$(curl -s --max-time $T -X POST "$BASE/generate" \
+    if ! resp=$(curl -s --max-time "$T" -X POST "$BASE/generate" \
         -H "Content-Type: application/json" \
-        -d "$prompt" 2>&1)
+        -d "$prompt" 2>&1); then
+        echo "$resp"
+        echo "=> FAIL (curl error, server unreachable?)"
+        fail=$((fail + 1))
+        echo ""
+        return
+    fi
     echo "$resp" | python3 -m json.tool 2>/dev/null || echo "$resp"
     if echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('code','')" 2>/dev/null; then
         echo "=> PASS"
-        ((ok++))
+        ok=$((ok + 1))
     else
         echo "=> FAIL (empty code)"
-        ((fail++))
+        fail=$((fail + 1))
     fi
     echo ""
 }
@@ -72,24 +78,32 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "TEST: Chat session with feedback"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-SESSION_ID=$(curl -s -X POST "$BASE/chat/sessions" -H "Content-Type: application/json" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-echo "Session: $SESSION_ID"
+SESSION_ID=$(curl -s --max-time "$T" -X POST "$BASE/chat/sessions" \
+    -H "Content-Type: application/json" 2>&1 | \
+    python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null) || true
 
-echo ""
-echo ">> Message 1: initial request"
-curl -s --max-time $T -X POST "$BASE/chat/sessions/$SESSION_ID/messages" \
-    -H "Content-Type: application/json" \
-    -d '{"content": "Напиши функцию для подсчета суммы элементов массива numbers.\n{\"wf\":{\"vars\":{\"numbers\":[1,2,3,4,5]}}}"}' | python3 -m json.tool
+if [ -z "$SESSION_ID" ]; then
+    echo "=> FAIL (could not create chat session)"
+else
+    echo "Session: $SESSION_ID"
 
-echo ""
-echo ">> Message 2: feedback (add average)"
-curl -s --max-time $T -X POST "$BASE/chat/sessions/$SESSION_ID/messages" \
-    -H "Content-Type: application/json" \
-    -d '{"content": "Добавь ещё вычисление среднего значения и верни таблицу с sum и avg"}' | python3 -m json.tool
+    echo ""
+    echo ">> Message 1: initial request"
+    curl -s --max-time "$T" -X POST "$BASE/chat/sessions/$SESSION_ID/messages" \
+        -H "Content-Type: application/json" \
+        -d '{"content": "Напиши функцию для подсчета суммы элементов массива numbers.\n{\"wf\":{\"vars\":{\"numbers\":[1,2,3,4,5]}}}"}' \
+        | python3 -m json.tool 2>/dev/null || echo "(no valid JSON response)"
 
-echo ""
-echo ">> Message history:"
-curl -s "$BASE/chat/sessions/$SESSION_ID/messages" | python3 -c "
+    echo ""
+    echo ">> Message 2: feedback (add average)"
+    curl -s --max-time "$T" -X POST "$BASE/chat/sessions/$SESSION_ID/messages" \
+        -H "Content-Type: application/json" \
+        -d '{"content": "Добавь ещё вычисление среднего значения и верни таблицу с sum и avg"}' \
+        | python3 -m json.tool 2>/dev/null || echo "(no valid JSON response)"
+
+    echo ""
+    echo ">> Message history:"
+    curl -s --max-time "$T" "$BASE/chat/sessions/$SESSION_ID/messages" | python3 -c "
 import sys, json
 msgs = json.load(sys.stdin)
 for m in msgs:
@@ -101,4 +115,5 @@ for m in msgs:
         print(f'    code: {code[:80]}...')
         print(f'    valid: {valid}')
     print()
-"
+" 2>/dev/null || echo "(could not fetch message history)"
+fi

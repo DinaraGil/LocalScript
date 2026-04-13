@@ -1,27 +1,25 @@
 """
-Initialization script: creates DB tables, indexes knowledge into Qdrant,
-and pulls the Ollama model if not already present.
+Initialization script: creates chat storage directory, indexes knowledge
+into Qdrant, and pulls the Ollama model if not already present.
 """
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 import httpx
 
 from app.config import settings
-from app.database import engine
-from app.models import Base
 from app.agent.rag import index_knowledge
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-async def create_tables() -> None:
-    logger.info("Creating database tables...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created.")
+def create_storage_dirs() -> None:
+    chat_dir = Path(settings.chat_storage_dir)
+    chat_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Chat storage directory ready: %s", chat_dir.resolve())
 
 
 async def pull_model() -> None:
@@ -51,7 +49,7 @@ async def pull_model() -> None:
 
 
 async def main() -> None:
-    await create_tables()
+    create_storage_dirs()
 
     logger.info("Indexing knowledge base into Qdrant...")
     index_knowledge()

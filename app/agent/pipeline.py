@@ -21,6 +21,7 @@ class PipelineResult:
     code: str
     full_response: str
     is_valid: bool | None = None
+    is_question: bool = False
     iterations: int = 1
 
 
@@ -143,6 +144,7 @@ class AgentPipeline:
                 code="",
                 full_response=response_text,
                 is_valid=None,
+                is_question=True,
                 iterations=1,
             )
 

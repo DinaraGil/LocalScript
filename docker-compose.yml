@@ -1,20 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    ports:
-      - "15432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   qdrant:
     image: qdrant/qdrant:latest
     volumes:
@@ -49,16 +33,16 @@ services:
   init:
     build: .
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       OLLAMA_BASE_URL: http://ollama:11434
       QDRANT_URL: http://qdrant:6333
       QDRANT_LOCAL_PATH: ""
       OLLAMA_MODEL: ${OLLAMA_MODEL}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      CHAT_STORAGE_DIR: /data/chat_storage
+    volumes:
+      - chat_data:/data/chat_storage
     depends_on:
-      postgres:
-        condition: service_healthy
       qdrant:
         condition: service_healthy
       ollama:
@@ -69,18 +53,18 @@ services:
   backend:
     build: .
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       OLLAMA_BASE_URL: http://ollama:11434
       QDRANT_URL: http://qdrant:6333
       QDRANT_LOCAL_PATH: ""
       OLLAMA_MODEL: ${OLLAMA_MODEL}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      CHAT_STORAGE_DIR: /data/chat_storage
+    volumes:
+      - chat_data:/data/chat_storage
     ports:
       - "18080:18080"
     depends_on:
-      postgres:
-        condition: service_healthy
       qdrant:
         condition: service_healthy
       ollama:
@@ -89,6 +73,6 @@ services:
         condition: service_completed_successfully
 
 volumes:
-  pg_data:
   qdrant_data:
   ollama_data:
+  chat_data:
