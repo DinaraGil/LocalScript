@@ -72,6 +72,13 @@ services:
       init:
         condition: service_completed_successfully
 
+  frontend:
+    build: ./localscript
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
 volumes:
   qdrant_data:
   ollama_data:

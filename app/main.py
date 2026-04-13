@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.chat_store import ChatStore
 from app.schemas import (
@@ -17,8 +21,18 @@ from app.agent.pipeline import AgentPipeline
 
 app = FastAPI(title="LocalScript API", version="1.0.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 pipeline = AgentPipeline()
 store = ChatStore()
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "localscript" / "dist"
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -132,3 +146,16 @@ async def send_message(session_id: uuid.UUID, msg: MessageIn):
         is_question=assistant_msg.is_question,
         created_at=assistant_msg.created_at,
     )
+
+
+# ── Serve frontend (only when built) ────────────────────────────────
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file = FRONTEND_DIST / full_path
+        if file.is_file():
+            return FileResponse(file)
+        return FileResponse(FRONTEND_DIST / "index.html")

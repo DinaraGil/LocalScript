@@ -5,6 +5,8 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$PROJECT_DIR/.venv"
 LOCAL_DIR="$PROJECT_DIR/.local"
 LUA_DIR="$LOCAL_DIR/lua"
+NODE_DIR="$LOCAL_DIR/node"
+FRONTEND_DIR="$PROJECT_DIR/localscript"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -131,11 +133,46 @@ run_init() {
     log "Initialization complete."
 }
 
-# ── 5. Start backend ────────────────────────────────────────────────
+# ── 5. Node.js (local binary, no sudo) ──────────────────────────────
+NODE_VERSION="22.15.0"
+
+install_node() {
+    if [ -x "$NODE_DIR/bin/node" ]; then
+        log "Node.js already installed locally."
+        return
+    fi
+    log "Downloading Node.js $NODE_VERSION..."
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        -o "$tmpdir/node.tar.xz"
+    mkdir -p "$NODE_DIR"
+    tar xJf "$tmpdir/node.tar.xz" -C "$NODE_DIR" --strip-components=1
+    rm -rf "$tmpdir"
+    log "Node.js $NODE_VERSION installed at $NODE_DIR/bin/node"
+}
+
+# ── 6. Frontend (Vite build) ────────────────────────────────────────
+setup_frontend() {
+    export PATH="$NODE_DIR/bin:$PATH"
+    cd "$FRONTEND_DIR"
+    if [ ! -d "node_modules" ]; then
+        log "Installing frontend dependencies..."
+        npm ci
+    else
+        log "Frontend dependencies already installed."
+    fi
+    log "Building frontend..."
+    npm run build
+    log "Frontend built -> $FRONTEND_DIR/dist"
+    cd "$PROJECT_DIR"
+}
+
+# ── 7. Start backend ────────────────────────────────────────────────
 start_backend() {
     cd "$PROJECT_DIR"
     export PATH="$LUA_DIR/bin:$PATH"
-    log "Starting FastAPI backend on http://localhost:$BACKEND_PORT ..."
+    log "Starting LocalScript on http://localhost:$BACKEND_PORT ..."
     uv run uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT"
 }
 
@@ -153,6 +190,8 @@ main() {
     pull_model
     setup_venv
     run_init
+    install_node
+    setup_frontend
     start_backend
 }
 
