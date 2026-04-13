@@ -105,7 +105,7 @@ class AgentPipeline:
             "options": {
                 "num_ctx": settings.ollama_num_ctx,
                 "num_predict": settings.ollama_num_predict,
-                "temperature": 0.1,
+                "temperature": 0.1, #prob need to change
                 "top_p": 0.9,
                 "repeat_penalty": 1.1,
             },
