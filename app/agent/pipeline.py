@@ -4,10 +4,11 @@ Flow (both /generate and /chat):
   User request
     -> Planner (SIMPLE / COMPLEX / QUESTION)
     -> Coder(s)  (single-shot or multi-part + Assembler, with auto-continuation)
+    -> Reviewer   (deterministic code cleanup)
     -> Validator  (syntax)
     -> Test Generator + Executor (Lua asserts)
-    -> Judge      (PASS / FAIL)
-    -> Fix loop   (up to MAX_FIX_ITERATIONS retries)
+    -> Judge      (PASS / FAIL — skipped when syntax+tests both pass)
+    -> Fix loop   (up to MAX_FIX_ITERATIONS retries, with escalating context)
 """
 
 from __future__ import annotations
@@ -24,15 +25,17 @@ from app.agent.agents.coder import CoderAgent
 from app.agent.agents.assembler import AssemblerAgent
 from app.agent.agents.test_generator import TestGeneratorAgent
 from app.agent.agents.judge import JudgeAgent
+from app.agent.agents.reviewer import review_and_fix
 from app.agent.validator import validate_lua
 from app.agent.executor import extract_json_context, run_lua_with_tests
 from app.agent.context_manager import ContextManager
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.rag import retrieve
+from app.agent.template_matcher import try_match
 
 logger = logging.getLogger(__name__)
 
-MAX_FIX_ITERATIONS = 2
+MAX_FIX_ITERATIONS = 3
 
 
 @dataclass
@@ -49,11 +52,11 @@ class PipelineResult:
 class AgentPipeline:
     def __init__(self) -> None:
         self._llm_call: LLMCallFn = shared_llm_call
-        self.planner = PlannerAgent(llm_call=self._llm_call)
+        self.planner = PlannerAgent(llm_call=self._llm_call, num_predict=64)
         self.coder = CoderAgent(llm_call=self._llm_call)
         self.assembler = AssemblerAgent(llm_call=self._llm_call)
-        self.test_gen = TestGeneratorAgent(llm_call=self._llm_call)
-        self.judge = JudgeAgent(llm_call=self._llm_call)
+        self.test_gen = TestGeneratorAgent(llm_call=self._llm_call, num_predict=192)
+        self.judge = JudgeAgent(llm_call=self._llm_call, num_predict=96)
         self.context_manager = ContextManager(llm_call=self._llm_call)
 
     # ------------------------------------------------------------------
@@ -78,9 +81,25 @@ class AgentPipeline:
     # ------------------------------------------------------------------
 
     async def _generate_code(self, user_prompt: str) -> PipelineResult:
-        """Run Planner -> Coder(s) -> Validate -> Test -> Judge -> Fix loop."""
+        """Run Planner -> Coder(s) -> Reviewer -> Validate -> Test -> Judge -> Fix loop."""
         json_ctx = extract_json_context(user_prompt)
         json_ctx_str = json.dumps(json_ctx, ensure_ascii=False) if json_ctx else "(no JSON context)"
+
+        # --- 0. Template matching: instant result for well-known patterns ---
+        tmpl = try_match(user_prompt, json_ctx)
+        if tmpl:
+            logger.info("Template match: %s — skipping LLM pipeline", tmpl.pattern_name)
+            syntax = await validate_lua(tmpl.code)
+            if syntax.is_valid:
+                exec_result = await run_lua_with_tests(tmpl.code, json_ctx, "")
+                if exec_result.success or not exec_result.error_summary:
+                    return PipelineResult(
+                        code=tmpl.code,
+                        full_response=tmpl.code,
+                        is_valid=True,
+                        iterations=0,
+                    )
+            logger.info("Template code failed validation, falling through to LLM pipeline")
 
         # --- 1. Planner ---
         plan = await self.planner.analyze(user_prompt)
@@ -102,31 +121,54 @@ class AgentPipeline:
         if not code.strip():
             return PipelineResult(code="", full_response="", is_valid=None)
 
-        # --- 3. Validate + Test + Judge loop ---
+        # --- 2.5. Deterministic Reviewer: fix common LLM mistakes ---
+        code, reviewer_fixes = review_and_fix(code, user_prompt)
+        if reviewer_fixes:
+            logger.info("Reviewer applied: %s", reviewer_fixes)
+
+        # --- 3. Validate + Test + (conditional Judge) + Fix loop ---
         best_code = code
         best_valid = None
         total_iterations = 1
+        prev_error = ""
 
         for attempt in range(1 + MAX_FIX_ITERATIONS):
             syntax = await validate_lua(code)
-            syntax_str = "PASS" if syntax.is_valid else f"FAIL: {syntax.error}"
+            syntax_ok = syntax.is_valid
+            syntax_str = "PASS" if syntax_ok else f"FAIL: {syntax.error}"
 
             test_assertions = await self.test_gen.generate_tests(
                 user_prompt, code, json_ctx_str,
             )
             exec_result = await run_lua_with_tests(code, json_ctx, test_assertions)
-            test_str = "PASS" if exec_result.tests_passed else f"FAIL: {exec_result.error_summary or exec_result.stderr}"
+            tests_ok = exec_result.tests_passed
+            test_str = "PASS" if tests_ok else f"FAIL: {exec_result.error_summary or exec_result.stderr}"
 
+            # Deterministic fast-path: if both syntax and tests pass, skip
+            # the LLM Judge call entirely — saves time and VRAM.
+            if syntax_ok and tests_ok:
+                logger.info(
+                    "Attempt %d: syntax=PASS tests=PASS -> auto-PASS (skipped Judge)",
+                    attempt + 1,
+                )
+                return PipelineResult(
+                    code=code,
+                    full_response=code,
+                    is_valid=True,
+                    iterations=total_iterations,
+                )
+
+            # Only call the LLM Judge when there are failures to analyze
             verdict = await self.judge.evaluate(code, syntax_str, test_str)
             logger.info(
                 "Attempt %d: syntax=%s tests=%s judge=%s",
                 attempt + 1,
-                "PASS" if syntax.is_valid else "FAIL",
-                "PASS" if exec_result.tests_passed else "FAIL",
+                "PASS" if syntax_ok else "FAIL",
+                "PASS" if tests_ok else "FAIL",
                 "PASS" if verdict.passed else "FAIL",
             )
 
-            if syntax.is_valid:
+            if syntax_ok:
                 best_code = code
                 best_valid = True
 
@@ -140,12 +182,31 @@ class AgentPipeline:
 
             if attempt < MAX_FIX_ITERATIONS:
                 total_iterations += 1
+                current_error = exec_result.error_summary or exec_result.stderr or syntax.error or ""
+
+                # Escalating context: if the same error repeats, provide more
+                # context to the fixer so it doesn't loop on the same mistake
+                escalation = ""
+                if current_error and current_error == prev_error:
+                    escalation = (
+                        "\nIMPORTANT: The previous fix attempt did NOT resolve this error. "
+                        "Try a fundamentally different approach."
+                    )
+
+                feedback = verdict.reason
+                if verdict.fix_instruction:
+                    feedback += "\n" + verdict.fix_instruction
+                feedback += escalation
+
                 code = await self.coder.fix(
                     user_prompt,
                     code,
-                    feedback=verdict.reason + ("\n" + verdict.fix_instruction if verdict.fix_instruction else ""),
-                    test_errors=exec_result.error_summary or exec_result.stderr or syntax.error or "",
+                    feedback=feedback,
+                    test_errors=current_error,
                 )
+                # Run reviewer on fixed code too
+                code, _ = review_and_fix(code, user_prompt)
+                prev_error = current_error
 
         return PipelineResult(
             code=best_code,
@@ -290,6 +351,10 @@ class AgentPipeline:
                     code = code + "\n" + cont_code
 
         code = _clean_code(code)
+
+        # Apply deterministic reviewer to chat follow-up code too
+        code, _ = review_and_fix(code, user_prompt)
+
         validation = await validate_lua(code)
         iterations = 1
 
@@ -306,6 +371,7 @@ class AgentPipeline:
                 new_code = _fallback_extract(response_text)
             if new_code:
                 code = _clean_code(new_code)
+                code, _ = review_and_fix(code, user_prompt)
             validation = await validate_lua(code)
 
         return PipelineResult(

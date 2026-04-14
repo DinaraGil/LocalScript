@@ -291,6 +291,13 @@ FIX_WITH_FEEDBACK_TEMPLATE = """\
 The Lua code below failed validation. Fix it and return the corrected FULL code in a ```lua block.
 Do NOT add new functionality — only fix what is broken.
 
+=== PLATFORM RULES (reminder) ===
+- No os.*, io.*, require(), dofile(), loadfile(), package.*, debug.*, coroutine.*.
+- Use wf.vars.VARNAME (dot-notation, NOT JsonPath). Read-only: wf.initVariables.VARNAME.
+- Arrays: _utils.array.new(), _utils.array.markAsArray(t). Lua is 1-indexed.
+- Use `return` for the result. Never use print().
+- Available: wf, _utils, string, table, math, tonumber, tostring, type, pairs, ipairs, next, select, unpack, pcall, xpcall, error, assert, setmetatable, getmetatable, rawget, rawset, rawlen.
+
 === ORIGINAL TASK ===
 {task}
 
@@ -304,6 +311,11 @@ Do NOT add new functionality — only fix what is broken.
 
 === TEST ERRORS ===
 {test_errors}
+
+=== FIX INSTRUCTIONS ===
+1. Read the test errors carefully — they show what value was produced vs expected.
+2. Fix ONLY the logic error. Do NOT change the overall structure.
+3. Return the COMPLETE corrected code in a single ```lua block.
 """
 
 CONTINUE_PROMPT = """\

@@ -21,7 +21,7 @@ class ContextWindow:
 class ContextManager:
     def __init__(
         self,
-        llm_call: Callable[[list[dict]], Awaitable[str]],
+        llm_call: Callable[..., Awaitable[str]],
     ) -> None:
         self._llm_call = llm_call
 

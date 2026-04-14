@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { listSessions } from '../api'
 import ChatInstance from './ChatInstance'
+import GpuMonitor from './GpuMonitor'
 
 export default function Sidebar({ activeSessionId, onSelectSession, onNewChat, refreshKey }) {
     const [sessions, setSessions] = useState([]);
@@ -12,7 +13,7 @@ export default function Sidebar({ activeSessionId, onSelectSession, onNewChat, r
     }, [refreshKey]);
 
     return (
-        <div className="flex-col bg-neutral-900 h-screen w-[15vw] shrink-0">
+        <div className="flex flex-col bg-neutral-900 h-screen w-[15vw] shrink-0">
             <div className="flex items-center p-5 gap-3">
                 <img src="logo.svg" alt="LocalScript" />
                 <p className="flex-1 font-bold text-3xl truncate select-none">
@@ -26,7 +27,7 @@ export default function Sidebar({ activeSessionId, onSelectSession, onNewChat, r
             >
                 <div className="pt-2 pb-2 select-none">+ New Chat</div>
             </button>
-            <div className="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-200px)] px-5
+            <div className="flex-1 flex flex-col gap-1 overflow-y-auto px-5 min-h-0
                 [scrollbar-width:thin] [scrollbar-color:theme(colors.neutral.700)_transparent]">
                 {sessions.map((s) => (
                     <ChatInstance
@@ -38,6 +39,7 @@ export default function Sidebar({ activeSessionId, onSelectSession, onNewChat, r
                     />
                 ))}
             </div>
+            <GpuMonitor />
         </div>
     )
 }

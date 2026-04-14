@@ -27,3 +27,15 @@ export async function sendMessage(sessionId, content) {
   if (!res.ok) throw new Error('Failed to send message');
   return res.json();
 }
+
+export async function getGpuStats() {
+  const res = await fetch(`${BASE}/gpu/stats`);
+  if (!res.ok) return { available: false, gpus: [] };
+  return res.json();
+}
+
+export async function resetGpuPeak() {
+  const res = await fetch(`${BASE}/gpu/reset-peak`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to reset peak');
+  return res.json();
+}

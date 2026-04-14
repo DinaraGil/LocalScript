@@ -82,21 +82,44 @@ def index_knowledge() -> None:
     logger.info("Indexed %d knowledge entries into Qdrant", len(points))
 
 
+def _normalize_query(query: str) -> str:
+    """Extract the core task description, stripping JSON context for better embedding match."""
+    import re
+    cleaned = re.sub(r'\{["\s]*wf["\s]*:.*', '', query, flags=re.DOTALL).strip()
+    if len(cleaned) < 10:
+        return query
+    return cleaned
+
+
 def retrieve(query: str, top_k: int = 5, min_score: float = 0.3) -> list[str]:
     try:
         embedder = get_embedder()
         client = get_qdrant()
-        query_vec = embedder.encode(query).tolist()
+
+        normalized = _normalize_query(query)
+        query_vec = embedder.encode(normalized).tolist()
+
         results = client.query_points(
             collection_name=settings.qdrant_collection,
             query=query_vec,
-            limit=top_k,
+            limit=top_k + 2,
         )
-        return [
-            hit.payload["text"]
-            for hit in results.points
+
+        hits = [
+            hit for hit in results.points
             if hit.payload and hit.score >= min_score
         ]
+
+        # Boost "example" category entries — they contain working code patterns
+        def _sort_key(hit):
+            score = hit.score
+            if hit.payload.get("category") == "example":
+                score += 0.05
+            return -score
+
+        hits.sort(key=_sort_key)
+
+        return [hit.payload["text"] for hit in hits[:top_k]]
     except Exception:
         logger.exception("RAG retrieval failed, continuing without context")
         return []

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import csv
 import uuid
+from io import StringIO
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -151,6 +154,72 @@ async def send_message(session_id: uuid.UUID, msg: MessageIn):
         is_question=assistant_msg.is_question,
         created_at=assistant_msg.created_at,
     )
+
+
+# ── GPU monitoring state ──────────────────────────────────────────────
+
+_gpu_peak: dict[int, float] = {}
+
+
+async def _query_gpu() -> list[dict] | None:
+    """Query nvidia-smi asynchronously. Returns None if unavailable."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "nvidia-smi",
+            "--query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu",
+            "--format=csv,noheader,nounits",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        if proc.returncode != 0:
+            return None
+
+        gpus = []
+        reader = csv.reader(StringIO(stdout.decode().strip()))
+        for row in reader:
+            if len(row) < 6:
+                continue
+            gpu_id = int(row[0].strip())
+            mem_used = float(row[2].strip())
+
+            if gpu_id not in _gpu_peak or mem_used > _gpu_peak[gpu_id]:
+                _gpu_peak[gpu_id] = mem_used
+
+            gpus.append({
+                "gpu_id": gpu_id,
+                "name": row[1].strip(),
+                "memory_used_mb": mem_used,
+                "memory_total_mb": float(row[3].strip()),
+                "utilization_pct": int(row[4].strip()),
+                "temperature_c": int(row[5].strip()),
+                "peak_memory_mb": _gpu_peak[gpu_id],
+            })
+        return gpus
+    except (FileNotFoundError, asyncio.TimeoutError):
+        return None
+
+
+@api.get("/gpu/stats")
+async def gpu_stats():
+    gpus = await _query_gpu()
+    if gpus is None:
+        return {"available": False, "gpus": []}
+
+    for g in gpus:
+        g["memory_used_gb"] = round(g["memory_used_mb"] / 1024, 2)
+        g["memory_total_gb"] = round(g["memory_total_mb"] / 1024, 2)
+        g["peak_memory_gb"] = round(g["peak_memory_mb"] / 1024, 2)
+        g["usage_pct"] = round(g["memory_used_mb"] / g["memory_total_mb"] * 100, 1) if g["memory_total_mb"] > 0 else 0
+        g["within_8gb_limit"] = g["peak_memory_mb"] <= 8192
+
+    return {"available": True, "gpus": gpus}
+
+
+@api.post("/gpu/reset-peak")
+async def gpu_reset_peak():
+    _gpu_peak.clear()
+    return {"status": "ok"}
 
 
 # Mount the same router at both prefixes:

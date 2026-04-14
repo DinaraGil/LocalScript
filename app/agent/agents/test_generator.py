@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class TestGeneratorAgent(BaseAgent):
-    def __init__(self, llm_call: LLMCallFn | None = None) -> None:
-        super().__init__(system_prompt=TEST_GENERATOR_PROMPT, llm_call=llm_call)
+    def __init__(self, llm_call: LLMCallFn | None = None, num_predict: int | None = None) -> None:
+        super().__init__(system_prompt=TEST_GENERATOR_PROMPT, llm_call=llm_call, num_predict=num_predict)
 
     async def generate_tests(
         self,

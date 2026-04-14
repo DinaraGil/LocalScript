@@ -20,8 +20,8 @@ class PlanResult:
 
 
 class PlannerAgent(BaseAgent):
-    def __init__(self, llm_call: LLMCallFn | None = None) -> None:
-        super().__init__(system_prompt=PLANNER_PROMPT, llm_call=llm_call)
+    def __init__(self, llm_call: LLMCallFn | None = None, num_predict: int | None = None) -> None:
+        super().__init__(system_prompt=PLANNER_PROMPT, llm_call=llm_call, num_predict=num_predict)
 
     async def analyze(self, user_prompt: str) -> PlanResult:
         response = await self.call(user_prompt)
