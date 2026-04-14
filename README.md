@@ -7,15 +7,15 @@ A fully local AI agent system that generates Lua code from natural language prom
 
 ```
 ┌────────────┐     ┌───────────────────┐     ┌────────────────┐
-│   Client    │── ▶│  FastAPI Backend    │──▶│  Ollama (GPU)   │
-│  (curl/UI)  │     │     :8080           │     │    :11434       │
+│   Client   │── ▶│  FastAPI Backend  │──▶ │  Ollama (GPU)  │
+│  (curl/UI) │     │     :8080         │     │    :11434      │
 └────────────┘     └──────┬───┬────────┘     └────────────────┘
-                            │   │
-                   ┌───────┘   └──────┐
-                   ▼                   ▼
+                          │   │
+                   ┌──────┘   └──────┐
+                   ▼                 ▼
             ┌────────────┐    ┌────────────┐
-            │ JSON files  │    │   Qdrant    │
-            │ chat_store  │    │   :6333     │
+            │ JSON files │    │   Qdrant   │
+            │ chat_store │    │   :6333    │
             └────────────┘    └────────────┘
 ```
 
@@ -40,50 +40,8 @@ ollama pull qwen2.5-coder:7b-instruct-q4_K_M
 
 **VRAM usage:** ~5 GB peak (well under 8 GB limit).
 
-## Quick Start (without Docker)
-
-### One-command deploy
-
-```bash
-./deploy.sh
-```
-
-This script automatically:
-1. Installs system packages (`lua5.4`, `curl`)
-2. Installs Ollama and pulls the model
-3. Creates Python venv and installs dependencies
-4. Runs initialization (RAG knowledge indexing)
-5. Starts the FastAPI backend on **http://localhost:8080**
-
-To stop all services:
-```bash
-./stop.sh
-```
-
-### Manual step-by-step
-
-```bash
-# 1. Install system deps
-sudo apt-get install -y lua5.4 curl
-
-# 2. Install and start Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-ollama serve &              # start in background
-ollama pull qwen2.5-coder:7b-instruct-q4_K_M
-
-# 3. Python environment
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# 4. Initialize (RAG index + pull model check)
-python -m scripts.init
-
-# 5. Start backend
-uvicorn app.main:app --host 0.0.0.0 --port 8080
-```
-
-### Docker Compose (alternative)
+## Quick Start 
+### Docker Compose
 
 ```bash
 docker compose up --build

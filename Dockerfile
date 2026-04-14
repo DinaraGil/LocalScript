@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends lua5.4 curl && \
+RUN apt update && \
+    apt install -y --no-install-recommends lua5.4 curl wget qdrant ollama && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
