@@ -40,12 +40,21 @@ ollama pull qwen2.5-coder:7b-instruct-q4_K_M
 
 **VRAM usage:** ~5 GB peak (well under 8 GB limit).
 
-## Quick Start 
+## Quick Start
+
+### Copy .env file
+
+```bash
+cp example.env .env
+```
+
 ### Docker Compose
 
 ```bash
 docker compose up --build
 ```
+
+Frontend will be available at **https://localhost:3000**.
 
 Backend will be available at **http://localhost:18080** (mapped from container port 8080).
 
