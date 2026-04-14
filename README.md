@@ -6,16 +6,16 @@ A fully local AI agent system that generates Lua code from natural language prom
 ## Architecture
 
 ```
-┌────────────┐     ┌──────────────────┐     ┌────────────────┐
-│   Client   │────▶│  FastAPI Backend  │────▶│  Ollama (GPU)  │
-│  (curl/UI) │     │     :8080         │     │    :11434      │
+┌────────────┐     ┌───────────────────┐     ┌────────────────┐
+│   Client    │── ▶│  FastAPI Backend    │──▶│  Ollama (GPU)   │
+│  (curl/UI)  │     │     :8080           │     │    :11434       │
 └────────────┘     └──────┬───┬────────┘     └────────────────┘
-                          │   │
-                   ┌──────┘   └──────┐
-                   ▼                 ▼
+                            │   │
+                   ┌───────┘   └──────┐
+                   ▼                   ▼
             ┌────────────┐    ┌────────────┐
-            │ JSON files │    │   Qdrant   │
-            │ chat_store │    │   :6333    │
+            │ JSON files  │    │   Qdrant    │
+            │ chat_store  │    │   :6333     │
             └────────────┘    └────────────┘
 ```
 
