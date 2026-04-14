@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.routing import APIRouter
 
 from app.chat_store import ChatStore
 from app.schemas import (
@@ -34,8 +35,12 @@ store = ChatStore()
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "localscript" / "dist"
 
+# ── API routes (shared router, mounted at both / and /api) ───────────
 
-@app.post("/generate", response_model=GenerateResponse)
+api = APIRouter()
+
+
+@api.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
     result = await pipeline.run(req.prompt)
     if result.is_question:
@@ -55,13 +60,13 @@ async def generate(req: GenerateRequest):
     )
 
 
-@app.post("/chat/sessions", response_model=SessionCreateOut)
+@api.post("/chat/sessions", response_model=SessionCreateOut)
 async def create_session():
     session = await store.create_session()
     return SessionCreateOut(id=session.id)
 
 
-@app.get("/chat/sessions", response_model=list[SessionOut])
+@api.get("/chat/sessions", response_model=list[SessionOut])
 async def list_sessions():
     sessions = await store.list_sessions()
     out = []
@@ -79,7 +84,7 @@ async def list_sessions():
     return out
 
 
-@app.get("/chat/sessions/{session_id}/messages", response_model=list[MessageOut])
+@api.get("/chat/sessions/{session_id}/messages", response_model=list[MessageOut])
 async def get_messages(session_id: uuid.UUID):
     try:
         messages = await store.get_messages(session_id)
@@ -100,7 +105,7 @@ async def get_messages(session_id: uuid.UUID):
     ]
 
 
-@app.post("/chat/sessions/{session_id}/messages", response_model=MessageOut)
+@api.post("/chat/sessions/{session_id}/messages", response_model=MessageOut)
 async def send_message(session_id: uuid.UUID, msg: MessageIn):
     session = await store.get_session(session_id)
     if not session:
@@ -147,6 +152,12 @@ async def send_message(session_id: uuid.UUID, msg: MessageIn):
         created_at=assistant_msg.created_at,
     )
 
+
+# Mount the same router at both prefixes:
+#   /generate, /chat/...        — for direct backend access and Docker nginx
+#   /api/generate, /api/chat/.. — for unified mode (frontend served by uvicorn)
+app.include_router(api)
+app.include_router(api, prefix="/api")
 
 # ── Serve frontend (only when built) ────────────────────────────────
 

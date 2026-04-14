@@ -305,5 +305,91 @@
   {
     "category": "lua_reference",
     "text": "Lua operators reference:\nArithmetic: + - * / % ^ (power) // (integer division)\nComparison: == ~= (not equal) < > <= >=\nLogical: and or not\nString concatenation: ..\nLength: # (for strings and arrays)\nNote: Lua has no ternary operator. Use: local x = condition and valueIfTrue or valueIfFalse\nCaution: this fails if valueIfTrue is false or nil."
+  },
+
+  {
+    "category": "example",
+    "text": "Task: Добавь обработку nil к существующему коду, который обращается к вложенным полям.\nExisting code:\nlocal city = wf.vars.user.address.city\nreturn string.upper(city)\nLua code (modified):\nlocal user = wf.vars.user\nif not user or not user.address or not user.address.city then\n  return nil\nend\nreturn string.upper(user.address.city)"
+  },
+  {
+    "category": "example",
+    "text": "Task: Измени существующий фильтр — добавь условие на минимальную цену 100.\nExisting code:\nlocal result = _utils.array.new()\nfor _, item in ipairs(wf.vars.products) do\n  if item.inStock == true then\n    table.insert(result, item)\n  end\nend\nreturn result\nLua code (modified):\nlocal result = _utils.array.new()\nfor _, item in ipairs(wf.vars.products) do\n  if item.inStock == true and (tonumber(item.price) or 0) >= 100 then\n    table.insert(result, item)\n  end\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: В существующий код добавь поле fullName в каждый объект результата.\nExisting code:\nlocal result = _utils.array.new()\nfor _, emp in ipairs(wf.vars.employees) do\n  table.insert(result, { id = emp.id, department = emp.department })\nend\nreturn result\nLua code (modified):\nlocal result = _utils.array.new()\nfor _, emp in ipairs(wf.vars.employees) do\n  local fullName = (emp.firstName or \"\") .. \" \" .. (emp.lastName or \"\")\n  table.insert(result, { id = emp.id, department = emp.department, fullName = fullName })\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Замени условие в существующем коде — вместо проверки на 'active' проверяй на список допустимых статусов.\nExisting code:\nlocal count = 0\nfor _, user in ipairs(wf.vars.users) do\n  if user.status == \"active\" then\n    count = count + 1\n  end\nend\nreturn count\nLua code (modified):\nlocal allowed = {active = true, verified = true, premium = true}\nlocal count = 0\nfor _, user in ipairs(wf.vars.users) do\n  if allowed[user.status] then\n    count = count + 1\n  end\nend\nreturn count"
+  },
+  {
+    "category": "example",
+    "text": "Task: Извлеки все email-адреса из глубоко вложенной структуры отделов и сотрудников.\nContext: wf.vars.company = {\"departments\":[{\"name\":\"IT\",\"teams\":[{\"members\":[{\"email\":\"a@test.com\"},{\"email\":\"b@test.com\"}]},{\"members\":[{\"email\":\"c@test.com\"}]}]},{\"name\":\"HR\",\"teams\":[{\"members\":[{\"email\":\"d@test.com\"}]}]}]}\nLua code:\nlocal result = _utils.array.new()\nfor _, dept in ipairs(wf.vars.company.departments) do\n  if dept.teams then\n    for _, team in ipairs(dept.teams) do\n      if team.members then\n        for _, member in ipairs(team.members) do\n          if member.email and member.email ~= \"\" then\n            table.insert(result, member.email)\n          end\n        end\n      end\n    end\n  end\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Обнови цены на продукты внутри категорий внутри каталога — прибавь НДС 20%.\nContext: wf.vars.catalog = {\"categories\":[{\"name\":\"Electronics\",\"products\":[{\"name\":\"Phone\",\"price\":1000},{\"name\":\"Laptop\",\"price\":2000}]},{\"name\":\"Books\",\"products\":[{\"name\":\"Novel\",\"price\":500}]}]}\nLua code:\nlocal categories = wf.vars.catalog.categories\nfor _, cat in ipairs(categories) do\n  if cat.products then\n    for _, product in ipairs(cat.products) do\n      local price = tonumber(product.price) or 0\n      product.priceWithVat = math.floor(price * 1.2)\n    end\n  end\nend\nreturn wf.vars.catalog"
+  },
+  {
+    "category": "example",
+    "text": "Task: Из вложенной структуры заказов извлеки уникальные SKU товаров со статусом 'shipped'.\nContext: wf.vars.orders = [{\"status\":\"shipped\",\"items\":[{\"sku\":\"A1\"},{\"sku\":\"B2\"}]},{\"status\":\"pending\",\"items\":[{\"sku\":\"C3\"}]},{\"status\":\"shipped\",\"items\":[{\"sku\":\"A1\"},{\"sku\":\"D4\"}]}]\nLua code:\nlocal seen = {}\nlocal result = _utils.array.new()\nfor _, order in ipairs(wf.vars.orders) do\n  if order.status == \"shipped\" and order.items then\n    for _, item in ipairs(order.items) do\n      if item.sku and not seen[item.sku] then\n        seen[item.sku] = true\n        table.insert(result, item.sku)\n      end\n    end\n  end\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Распарси строку с параметрами вида 'key1=val1&key2=val2' в таблицу.\nContext: wf.vars.queryString = \"name=Ivan&age=30&city=Moscow\"\nLua code:\nlocal str = wf.vars.queryString or \"\"\nlocal result = {}\nfor pair in string.gmatch(str, \"([^&]+)\") do\n  local key, value = string.match(pair, \"([^=]+)=(.*)\")\n  if key then\n    result[key] = value\n  end\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Для каждого заказа посчитай общую сумму, количество товаров и среднюю цену.\nContext: wf.vars.orders = [{\"id\":1,\"items\":[{\"price\":100,\"qty\":2},{\"price\":200,\"qty\":1}]},{\"id\":2,\"items\":[{\"price\":50,\"qty\":5}]}]\nLua code:\nlocal result = _utils.array.new()\nfor _, order in ipairs(wf.vars.orders) do\n  local total = 0\n  local totalQty = 0\n  for _, item in ipairs(order.items) do\n    local price = tonumber(item.price) or 0\n    local qty = tonumber(item.qty) or 0\n    total = total + price * qty\n    totalQty = totalQty + qty\n  end\n  local avg = totalQty > 0 and math.floor(total / totalQty) or 0\n  table.insert(result, {\n    id = order.id,\n    total = total,\n    itemCount = totalQty,\n    avgPrice = avg\n  })\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Рекурсивно найди все значения по ключу 'email' во вложенной структуре произвольной глубины.\nContext: wf.vars.data — произвольная вложенная структура.\nLua code:\nlocal emails = _utils.array.new()\nlocal function findEmails(obj)\n  if type(obj) ~= \"table\" then return end\n  for k, v in pairs(obj) do\n    if k == \"email\" and type(v) == \"string\" and v ~= \"\" then\n      table.insert(emails, v)\n    elseif type(v) == \"table\" then\n      findEmails(v)\n    end\n  end\nend\nfindEmails(wf.vars.data)\nreturn emails"
+  },
+  {
+    "category": "example",
+    "text": "Task: Преобразуй плоский массив объектов с parent_id в дерево.\nContext: wf.vars.items = [{\"id\":1,\"name\":\"Root\",\"parent_id\":nil},{\"id\":2,\"name\":\"Child1\",\"parent_id\":1},{\"id\":3,\"name\":\"Child2\",\"parent_id\":1},{\"id\":4,\"name\":\"SubChild\",\"parent_id\":2}]\nLua code:\nlocal items = wf.vars.items\nlocal byId = {}\nfor _, item in ipairs(items) do\n  item.children = _utils.array.new()\n  byId[item.id] = item\nend\nlocal roots = _utils.array.new()\nfor _, item in ipairs(items) do\n  if item.parent_id and byId[item.parent_id] then\n    table.insert(byId[item.parent_id].children, item)\n  else\n    table.insert(roots, item)\n  end\nend\nreturn roots"
+  },
+  {
+    "category": "example",
+    "text": "Task: Маппинг данных: преобразуй массив из одного формата API в другой с переименованием полей и вычисляемыми значениями.\nContext: wf.vars.sourceData = [{\"user_name\":\"ivan\",\"created_at\":\"2024-01-15\",\"amount_cents\":15000},{\"user_name\":\"anna\",\"created_at\":\"2024-02-20\",\"amount_cents\":7500}]\nLua code:\nlocal result = _utils.array.new()\nfor _, row in ipairs(wf.vars.sourceData) do\n  local amountRub = math.floor((tonumber(row.amount_cents) or 0) / 100)\n  table.insert(result, {\n    userName = row.user_name,\n    date = row.created_at,\n    amount = amountRub,\n    currency = \"RUB\"\n  })\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Валидируй данные формы: проверь email-формат, обязательные поля и длину строки.\nContext: wf.vars.form = {\"email\":\"test@mail.ru\",\"name\":\"Ivan\",\"phone\":\"+71234567890\",\"comment\":\"\"}\nLua code:\nlocal form = wf.vars.form\nlocal errors = _utils.array.new()\nif not form.name or form.name == \"\" then\n  table.insert(errors, \"name is required\")\nend\nif not form.email or not string.match(form.email, \".+@.+%..+\") then\n  table.insert(errors, \"invalid email format\")\nend\nif not form.phone or #form.phone < 10 then\n  table.insert(errors, \"phone must be at least 10 characters\")\nend\nif form.comment and #form.comment > 500 then\n  table.insert(errors, \"comment is too long (max 500)\")\nend\nreturn { isValid = #errors == 0, errors = errors }"
+  },
+  {
+    "category": "example",
+    "text": "Task: Группировка с агрегацией: сгруппируй продажи по месяцу и посчитай сумму и количество.\nContext: wf.vars.sales = [{\"date\":\"2024-01-10\",\"amount\":100},{\"date\":\"2024-01-25\",\"amount\":200},{\"date\":\"2024-02-05\",\"amount\":150}]\nLua code:\nlocal groups = {}\nlocal order = _utils.array.new()\nfor _, sale in ipairs(wf.vars.sales) do\n  local month = string.sub(sale.date, 1, 7)\n  if not groups[month] then\n    groups[month] = { month = month, total = 0, count = 0 }\n    table.insert(order, month)\n  end\n  groups[month].total = groups[month].total + (tonumber(sale.amount) or 0)\n  groups[month].count = groups[month].count + 1\nend\nlocal result = _utils.array.new()\nfor _, m in ipairs(order) do\n  table.insert(result, groups[m])\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Мерж двух массивов объектов по общему полю id — объедини данные.\nContext: wf.vars.users = [{\"id\":1,\"name\":\"Ivan\"},{\"id\":2,\"name\":\"Anna\"}], wf.vars.orders = [{\"userId\":1,\"total\":500},{\"userId\":2,\"total\":300},{\"userId\":1,\"total\":200}]\nLua code:\nlocal userMap = {}\nfor _, user in ipairs(wf.vars.users) do\n  userMap[user.id] = { name = user.name, totalOrders = 0, totalAmount = 0 }\nend\nfor _, order in ipairs(wf.vars.orders) do\n  local u = userMap[order.userId]\n  if u then\n    u.totalOrders = u.totalOrders + 1\n    u.totalAmount = u.totalAmount + (tonumber(order.total) or 0)\n  end\nend\nlocal result = _utils.array.new()\nfor id, data in pairs(userMap) do\n  table.insert(result, { id = id, name = data.name, totalOrders = data.totalOrders, totalAmount = data.totalAmount })\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Разбей массив на чанки (подмассивы) заданного размера.\nContext: wf.vars.items = [1,2,3,4,5,6,7], wf.vars.chunkSize = 3\nLua code:\nlocal items = wf.vars.items\nlocal size = tonumber(wf.vars.chunkSize) or 1\nlocal result = _utils.array.new()\nlocal chunk = _utils.array.new()\nfor i, item in ipairs(items) do\n  table.insert(chunk, item)\n  if #chunk >= size or i == #items then\n    table.insert(result, chunk)\n    chunk = _utils.array.new()\n  end\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Для массива строк примени маску — замени email-адреса на '***@domain'.\nContext: wf.vars.texts = [\"Контакт: ivan@mail.ru\",\"Напиши на test@gmail.com\",\"Нет email тут\"]\nLua code:\nlocal result = _utils.array.new()\nfor _, text in ipairs(wf.vars.texts) do\n  local masked = string.gsub(text, \"(%S+)@(%S+)\", \"***@%2\")\n  table.insert(result, masked)\nend\nreturn result"
+  },
+  {
+    "category": "example",
+    "text": "Task: Реализуй пагинацию — верни срез массива по номеру страницы и размеру.\nContext: wf.vars.allItems — большой массив, wf.vars.page = 2, wf.vars.pageSize = 5\nLua code:\nlocal items = wf.vars.allItems or {}\nlocal page = tonumber(wf.vars.page) or 1\nlocal pageSize = tonumber(wf.vars.pageSize) or 10\nlocal startIdx = (page - 1) * pageSize + 1\nlocal endIdx = startIdx + pageSize - 1\nlocal result = _utils.array.new()\nfor i = startIdx, math.min(endIdx, #items) do\n  table.insert(result, items[i])\nend\nreturn {\n  items = result,\n  page = page,\n  pageSize = pageSize,\n  totalItems = #items,\n  totalPages = math.ceil(#items / pageSize)\n}"
+  },
+
+  {
+    "category": "pattern",
+    "text": "Common Lua pattern: Safe deep field access with fallback.\nlocal function safeGet(obj, ...)\n  local current = obj\n  for _, key in ipairs({...}) do\n    if type(current) ~= \"table\" then return nil end\n    current = current[key]\n  end\n  return current\nend\nUsage: local city = safeGet(wf.vars, \"user\", \"address\", \"city\") or \"unknown\""
+  },
+  {
+    "category": "pattern",
+    "text": "Common Lua pattern: Iterating with accumulator and early exit.\nlocal found = nil\nfor _, item in ipairs(wf.vars.items) do\n  if item.id == targetId then\n    found = item\n    break\n  end\nend\nreturn found\n\nWith accumulator:\nlocal sum, count = 0, 0\nfor _, item in ipairs(wf.vars.data) do\n  local val = tonumber(item.value) or 0\n  sum = sum + val\n  count = count + 1\nend\nreturn { sum = sum, avg = count > 0 and sum / count or 0 }"
+  },
+  {
+    "category": "pattern",
+    "text": "Common Lua pattern: Modifying existing code.\nWhen asked to modify existing code:\n1. Keep all parts that are not mentioned in the change request.\n2. Only add/remove/change the specific part requested.\n3. Preserve variable names and code style.\n4. If adding a condition, wrap the existing logic; don't rewrite from scratch.\n5. If adding a field, add it to the existing table constructor or loop.\nExample: 'Add error handling' = wrap body in pcall, keep everything else."
   }
 ]

@@ -1,4 +1,4 @@
-const BASE = import.meta.env.DEV ? '/api' : '';
+const BASE = '/api';
 
 export async function createSession() {
   const res = await fetch(`${BASE}/chat/sessions`, { method: 'POST' });
