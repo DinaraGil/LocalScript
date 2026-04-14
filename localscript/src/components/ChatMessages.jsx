@@ -9,11 +9,28 @@ export default function ChatMessages({ sessionId, refreshKey, optimisticMsg, sen
 
     useEffect(() => {
         if (!sessionId) return;
+        let cancelled = false;
         setLoading(true);
-        getMessages(sessionId)
-            .then(setMessages)
-            .catch(console.error)
-            .finally(() => setLoading(false));
+
+        const fetchWithRetry = async (retries = 2, delay = 300) => {
+            for (let i = 0; i <= retries; i++) {
+                try {
+                    const msgs = await getMessages(sessionId);
+                    if (!cancelled) setMessages(msgs);
+                    return;
+                } catch (err) {
+                    if (i < retries) {
+                        await new Promise(r => setTimeout(r, delay));
+                    } else if (!cancelled) {
+                        console.error(err);
+                        setMessages([]);
+                    }
+                }
+            }
+        };
+
+        fetchWithRetry().finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
     }, [sessionId, refreshKey]);
 
     useEffect(() => {

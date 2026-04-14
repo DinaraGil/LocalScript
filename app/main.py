@@ -89,7 +89,7 @@ async def get_messages(session_id: uuid.UUID):
     try:
         messages = await store.get_messages(session_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="Session not found")
+        return []
     return [
         MessageOut(
             id=m.id,

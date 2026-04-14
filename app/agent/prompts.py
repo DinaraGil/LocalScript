@@ -305,3 +305,18 @@ Do NOT add new functionality — only fix what is broken.
 === TEST ERRORS ===
 {test_errors}
 """
+
+CONTINUE_PROMPT = """\
+The Lua code below was truncated mid-generation. Continue writing from EXACTLY where it stopped.
+Return ONLY the remaining code (no repetition of what's already written).
+Do NOT wrap in ```lua fences. Do NOT repeat any lines. Just the raw continuation.
+
+CRITICAL RULES:
+- Do NOT use os.*, io.*, require() — they are FORBIDDEN.
+- Do NOT invent functions like _utils.date.toEpoch — they don't exist.
+- Only use: wf, _utils.array, string, table, math, tonumber, tostring, type, pairs, ipairs, pcall, error, assert.
+- Compute dates manually with arithmetic (days_since_epoch, leap year checks, etc.)
+
+Code so far:
+{code_so_far}
+"""

@@ -1,9 +1,9 @@
 """Multi-agent pipeline orchestrator.
 
-Flow:
+Flow (both /generate and /chat):
   User request
     -> Planner (SIMPLE / COMPLEX / QUESTION)
-    -> Coder(s)  (single-shot or multi-part + Assembler)
+    -> Coder(s)  (single-shot or multi-part + Assembler, with auto-continuation)
     -> Validator  (syntax)
     -> Test Generator + Executor (Lua asserts)
     -> Judge      (PASS / FAIL)
@@ -13,6 +13,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import re
 import logging
 from dataclasses import dataclass
 
@@ -66,8 +67,6 @@ class AgentPipeline:
         existing_summary: str | None = None,
         summarized_count: int = 0,
     ) -> PipelineResult:
-        # For chat with history, use the legacy single-shot path
-        # (multi-agent decomposition is for stateless /generate)
         if chat_history:
             return await self._run_chat(
                 user_prompt, chat_history, existing_summary, summarized_count,
@@ -75,10 +74,11 @@ class AgentPipeline:
         return await self._run_generate(user_prompt)
 
     # ------------------------------------------------------------------
-    # Multi-agent /generate path
+    # Core multi-agent code generation (shared by /generate and /chat)
     # ------------------------------------------------------------------
 
-    async def _run_generate(self, user_prompt: str) -> PipelineResult:
+    async def _generate_code(self, user_prompt: str) -> PipelineResult:
+        """Run Planner -> Coder(s) -> Validate -> Test -> Judge -> Fix loop."""
         json_ctx = extract_json_context(user_prompt)
         json_ctx_str = json.dumps(json_ctx, ensure_ascii=False) if json_ctx else "(no JSON context)"
 
@@ -93,7 +93,7 @@ class AgentPipeline:
                 is_question=True,
             )
 
-        # --- 2. Coder ---
+        # --- 2. Coder (with auto-continuation built into CoderAgent) ---
         if plan.complexity == "COMPLEX" and plan.steps:
             code = await self._generate_complex(user_prompt, plan.steps)
         else:
@@ -111,14 +111,12 @@ class AgentPipeline:
             syntax = await validate_lua(code)
             syntax_str = "PASS" if syntax.is_valid else f"FAIL: {syntax.error}"
 
-            # Run tests
             test_assertions = await self.test_gen.generate_tests(
                 user_prompt, code, json_ctx_str,
             )
             exec_result = await run_lua_with_tests(code, json_ctx, test_assertions)
             test_str = "PASS" if exec_result.tests_passed else f"FAIL: {exec_result.error_summary or exec_result.stderr}"
 
-            # Judge
             verdict = await self.judge.evaluate(code, syntax_str, test_str)
             logger.info(
                 "Attempt %d: syntax=%s tests=%s judge=%s",
@@ -171,7 +169,14 @@ class AgentPipeline:
         return assembled
 
     # ------------------------------------------------------------------
-    # Chat path (preserves existing behavior with context management)
+    # /generate path (stateless)
+    # ------------------------------------------------------------------
+
+    async def _run_generate(self, user_prompt: str) -> PipelineResult:
+        return await self._generate_code(user_prompt)
+
+    # ------------------------------------------------------------------
+    # Chat path (with context management + multi-agent code generation)
     # ------------------------------------------------------------------
 
     async def _run_chat(
@@ -181,10 +186,39 @@ class AgentPipeline:
         existing_summary: str | None,
         summarized_count: int,
     ) -> PipelineResult:
-        system_content = self._build_system_prompt(user_prompt)
+        # Determine if this is a follow-up (fix/change) or new code request
+        is_followup = _is_followup_request(user_prompt, chat_history)
 
-        updated_summary: str | None = existing_summary
-        new_summarized_count = summarized_count
+        if is_followup:
+            # Follow-ups need chat history context (previous code, corrections)
+            return await self._run_chat_followup(
+                user_prompt, chat_history, existing_summary, summarized_count,
+            )
+
+        # New code generation request: use the full multi-agent pipeline
+        # (Planner, Coder with auto-continuation, Test, Judge)
+        result = await self._generate_code(user_prompt)
+
+        # Attach context management metadata
+        ctx = await self.context_manager.prepare(
+            system_prompt="",
+            chat_history=chat_history,
+            existing_summary=existing_summary,
+            summarized_count=summarized_count,
+        )
+        result.updated_summary = ctx.summary
+        result.summarized_count = ctx.summarized_count
+        return result
+
+    async def _run_chat_followup(
+        self,
+        user_prompt: str,
+        chat_history: list[dict],
+        existing_summary: str | None,
+        summarized_count: int,
+    ) -> PipelineResult:
+        """Handle follow-up messages (fix, change, add) using chat history."""
+        system_content = self._build_system_prompt(user_prompt)
 
         ctx = await self.context_manager.prepare(
             system_prompt=system_content,
@@ -211,6 +245,8 @@ class AgentPipeline:
 
         code = _extract_lua_code(response_text)
         if not code:
+            code = _extract_lua_open(response_text)
+        if not code:
             code = _fallback_extract(response_text)
         if not code:
             return PipelineResult(
@@ -223,6 +259,31 @@ class AgentPipeline:
             )
 
         code = _clean_code(code)
+
+        # Auto-continuation for truncated follow-up responses
+        from app.agent.agents.coder import is_truncated
+        from app.agent.prompts import CONTINUE_PROMPT
+        for _attempt in range(3):
+            if not is_truncated(code):
+                break
+            logger.info("Chat follow-up truncated, requesting continuation...")
+            cont_msg = CONTINUE_PROMPT.format(code_so_far=code)
+            messages.append({"role": "assistant", "content": response_text})
+            messages.append({"role": "user", "content": cont_msg})
+            response_text = await self._llm_call(messages)
+
+            cont_code = _extract_lua_code(response_text)
+            if not cont_code:
+                cont_code = _extract_lua_open(response_text)
+            if not cont_code:
+                cont_code = _strip_fences(response_text)
+            if cont_code:
+                from app.agent.agents.coder import _deduplicate_continuation
+                cont_code = _deduplicate_continuation(code, cont_code)
+                if cont_code:
+                    code = code + "\n" + cont_code
+
+        code = _clean_code(code)
         validation = await validate_lua(code)
         iterations = 1
 
@@ -230,7 +291,7 @@ class AgentPipeline:
             iterations += 1
             from app.agent.prompts import FIX_PROMPT_TEMPLATE
             fix_content = FIX_PROMPT_TEMPLATE.format(code=code, error=validation.error)
-            messages.append({"role": "assistant", "content": response_text})
+            messages.append({"role": "assistant", "content": f"```lua\n{code}\n```"})
             messages.append({"role": "user", "content": fix_content})
 
             response_text = await self._llm_call(messages)
@@ -260,10 +321,27 @@ class AgentPipeline:
 
 
 # ------------------------------------------------------------------
-# Helpers reused from the original pipeline for the chat path
+# Helpers
 # ------------------------------------------------------------------
 
-import re  # noqa: E402
+
+def _is_followup_request(user_prompt: str, chat_history: list[dict]) -> bool:
+    """Detect if the current message is a follow-up to previous code."""
+    if len(chat_history) < 2:
+        return False
+
+    has_prior_assistant = any(m["role"] == "assistant" for m in chat_history[:-1])
+    if not has_prior_assistant:
+        return False
+
+    prompt_lower = user_prompt.lower().strip()
+    followup_markers = [
+        "fix", "change", "add", "remove", "modify", "update", "replace",
+        "исправь", "измени", "добавь", "убери", "удали", "поменяй",
+        "замени", "обнови", "переделай", "доработай",
+        "продолжай", "continue",
+    ]
+    return any(marker in prompt_lower for marker in followup_markers)
 
 
 def _extract_lua_code(text: str) -> str | None:
@@ -272,6 +350,28 @@ def _extract_lua_code(text: str) -> str | None:
         if m:
             return m.group(1).strip()
     return None
+
+
+def _extract_lua_open(text: str) -> str | None:
+    """Extract code from an unclosed fenced block (truncated output)."""
+    m = re.search(r"```lua\s*\n(.+)", text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"```\s*\n(.+)", text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _strip_fences(text: str) -> str:
+    """Remove code fences from text."""
+    t = text.strip()
+    for fence in ["```lua", "```"]:
+        if t.startswith(fence):
+            t = t[len(fence):].strip()
+    if t.endswith("```"):
+        t = t[:-3].strip()
+    return t
 
 
 def _fallback_extract(text: str) -> str | None:

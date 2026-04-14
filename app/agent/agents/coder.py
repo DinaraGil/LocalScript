@@ -1,4 +1,4 @@
-"""Coder agent: generates Lua code (single-shot or multi-part)."""
+"""Coder agent: generates Lua code (single-shot or multi-part) with auto-continuation."""
 
 from __future__ import annotations
 
@@ -6,10 +6,12 @@ import re
 import logging
 
 from app.agent.agents.base import BaseAgent, LLMCallFn
-from app.agent.prompts import CODER_PROMPT, CODER_STEP_PROMPT
+from app.agent.prompts import CODER_PROMPT, CODER_STEP_PROMPT, CONTINUE_PROMPT
 from app.agent.rag import retrieve
 
 logger = logging.getLogger(__name__)
+
+MAX_CONTINUATIONS = 3
 
 
 def _extract_lua(text: str) -> str | None:
@@ -17,6 +19,17 @@ def _extract_lua(text: str) -> str | None:
         m = re.search(pat, text, re.DOTALL)
         if m:
             return m.group(1).strip()
+    return None
+
+
+def _extract_lua_open(text: str) -> str | None:
+    """Extract code from an unclosed fenced block (truncated output)."""
+    m = re.search(r"```lua\s*\n(.+)", text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"```\s*\n(.+)", text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
     return None
 
 
@@ -54,17 +67,57 @@ def _build_rag_context(user_query: str) -> str:
     return ""
 
 
+def is_truncated(code: str) -> bool:
+    """Detect if Lua code was cut off mid-generation by the token limit."""
+    if not code or not code.strip():
+        return False
+
+    stripped = code.rstrip()
+
+    # Ends with an assignment operator, comma, concatenation, opening paren/brace
+    trailing_patterns = [
+        r'=\s*$',           # x =
+        r',\s*$',           # trailing comma
+        r'\.\.\s*$',        # string concat
+        r'\(\s*$',          # open paren
+        r'\{\s*$',          # open brace
+        r'\bthen\s*$',      # then without body
+        r'\bdo\s*$',        # do without body
+        r'\belse\s*$',      # else without body
+        r'\bfunction\s*\(.*\)\s*$',  # function declaration without body
+    ]
+    for pat in trailing_patterns:
+        if re.search(pat, stripped):
+            return True
+
+    # Unbalanced block keywords: function/if/for/while need matching end
+    openers = len(re.findall(r'\b(?:function|if|for|while|repeat)\b', stripped))
+    closers = len(re.findall(r'\bend\b', stripped))
+    if openers > closers:
+        return True
+
+    # No return statement at all (most Lua scripts need one)
+    if 'return ' not in stripped and not stripped.endswith('return'):
+        if stripped.count('\n') >= 3:
+            return True
+
+    return False
+
+
 class CoderAgent(BaseAgent):
     def __init__(self, llm_call: LLMCallFn | None = None) -> None:
         super().__init__(system_prompt="", llm_call=llm_call)
 
     async def generate_simple(self, user_prompt: str) -> str:
-        """Single-shot generation for simple tasks."""
+        """Single-shot generation with auto-continuation for truncated output."""
         rag = _build_rag_context(user_prompt)
         prompt = CODER_PROMPT.format(rag_context=rag)
         self.system_prompt = prompt
         response = await self.call(user_prompt)
-        return self._extract_and_clean(response)
+        code = self._extract_and_clean(response, allow_open=True)
+
+        code = await self._auto_continue(code, prompt)
+        return code
 
     async def generate_step(
         self,
@@ -81,7 +134,10 @@ class CoderAgent(BaseAgent):
         )
         self.system_prompt = prompt
         response = await self.call(user_prompt)
-        return self._extract_and_clean(response)
+        code = self._extract_and_clean(response, allow_open=True)
+
+        code = await self._auto_continue(code, prompt)
+        return code
 
     async def fix(self, user_prompt: str, code: str, feedback: str, test_errors: str) -> str:
         """Fix code based on judge feedback."""
@@ -95,11 +151,67 @@ class CoderAgent(BaseAgent):
             test_errors=test_errors,
         )
         response = await self.call(fix_request)
-        return self._extract_and_clean(response)
+        code = self._extract_and_clean(response, allow_open=True)
+
+        code = await self._auto_continue(code, self.system_prompt)
+        return code
+
+    async def _auto_continue(self, code: str, system_prompt: str) -> str:
+        """Detect truncated output and request continuation up to MAX_CONTINUATIONS times."""
+        for i in range(MAX_CONTINUATIONS):
+            if not is_truncated(code):
+                break
+
+            logger.info("Truncation detected (attempt %d), requesting continuation...", i + 1)
+            continue_request = CONTINUE_PROMPT.format(code_so_far=code)
+            self.system_prompt = system_prompt
+            continuation = await self.call(continue_request)
+
+            # Clean continuation: remove fences, remove repeated lines
+            cont_clean = continuation.strip()
+            for fence in ["```lua", "```"]:
+                if cont_clean.startswith(fence):
+                    cont_clean = cont_clean[len(fence):].strip()
+            if cont_clean.endswith("```"):
+                cont_clean = cont_clean[:-3].strip()
+
+            cont_clean = _deduplicate_continuation(code, cont_clean)
+
+            if not cont_clean:
+                break
+
+            code = code + "\n" + cont_clean
+
+        return _clean_code(code)
 
     @staticmethod
-    def _extract_and_clean(response: str) -> str:
+    def _extract_and_clean(response: str, allow_open: bool = False) -> str:
         code = _extract_lua(response)
+        if not code and allow_open:
+            code = _extract_lua_open(response)
         if not code:
             code = _fallback_extract(response)
-        return _clean_code(code) if code else response.strip()
+        return code.strip() if code else response.strip()
+
+
+def _deduplicate_continuation(existing: str, continuation: str) -> str:
+    """Remove lines from continuation that duplicate the tail of existing code."""
+    existing_lines = existing.strip().splitlines()
+    cont_lines = continuation.strip().splitlines()
+
+    if not cont_lines:
+        return ""
+
+    # Find overlap: check if the first N lines of continuation match the last N of existing
+    max_overlap = min(len(existing_lines), len(cont_lines))
+    overlap = 0
+    for n in range(1, max_overlap + 1):
+        tail = [l.strip() for l in existing_lines[-n:]]
+        head = [l.strip() for l in cont_lines[:n]]
+        if tail == head:
+            overlap = n
+
+    if overlap > 0:
+        cont_lines = cont_lines[overlap:]
+
+    return "\n".join(cont_lines)
