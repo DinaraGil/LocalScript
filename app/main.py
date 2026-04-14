@@ -161,6 +161,29 @@ async def send_message(session_id: uuid.UUID, msg: MessageIn):
 _gpu_peak: dict[int, float] = {}
 
 
+def _get_ollama_gpu_ids() -> set[int] | None:
+    """Detect which GPU(s) Ollama uses from its CUDA_VISIBLE_DEVICES."""
+    import os
+    pid_file = Path(__file__).resolve().parent.parent / ".local" / "ollama.pid"
+    try:
+        if pid_file.exists():
+            pid = pid_file.read_text().strip()
+            environ_path = Path(f"/proc/{pid}/environ")
+            if environ_path.exists():
+                env_data = environ_path.read_bytes().split(b'\x00')
+                for entry in env_data:
+                    text = entry.decode(errors="ignore")
+                    if text.startswith("CUDA_VISIBLE_DEVICES="):
+                        ids = text.split("=", 1)[1]
+                        return {int(x.strip()) for x in ids.split(",") if x.strip().isdigit()}
+    except Exception:
+        pass
+    cuda_env = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if cuda_env:
+        return {int(x.strip()) for x in cuda_env.split(",") if x.strip().isdigit()}
+    return None
+
+
 async def _query_gpu() -> list[dict] | None:
     """Query nvidia-smi asynchronously. Returns None if unavailable."""
     try:
@@ -175,12 +198,18 @@ async def _query_gpu() -> list[dict] | None:
         if proc.returncode != 0:
             return None
 
+        ollama_gpus = _get_ollama_gpu_ids()
+
         gpus = []
         reader = csv.reader(StringIO(stdout.decode().strip()))
         for row in reader:
             if len(row) < 6:
                 continue
             gpu_id = int(row[0].strip())
+
+            if ollama_gpus is not None and gpu_id not in ollama_gpus:
+                continue
+
             mem_used = float(row[2].strip())
 
             if gpu_id not in _gpu_peak or mem_used > _gpu_peak[gpu_id]:
