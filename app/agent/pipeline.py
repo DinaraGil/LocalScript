@@ -267,7 +267,13 @@ class AgentPipeline:
             if not is_truncated(code):
                 break
             logger.info("Chat follow-up truncated, requesting continuation...")
-            cont_msg = CONTINUE_PROMPT.format(code_so_far=code)
+            code_lines = code.strip().splitlines()
+            last_n = code_lines[-10:] if len(code_lines) > 10 else code_lines
+            cont_msg = CONTINUE_PROMPT.format(
+                total_lines=len(code_lines),
+                last_lines="\n".join(last_n),
+                last_line=code_lines[-1].strip() if code_lines else "",
+            )
             messages.append({"role": "assistant", "content": response_text})
             messages.append({"role": "user", "content": cont_msg})
             response_text = await self._llm_call(messages)

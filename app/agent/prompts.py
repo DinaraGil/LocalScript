@@ -307,16 +307,21 @@ Do NOT add new functionality — only fix what is broken.
 """
 
 CONTINUE_PROMPT = """\
-The Lua code below was truncated mid-generation. Continue writing from EXACTLY where it stopped.
-Return ONLY the remaining code (no repetition of what's already written).
-Do NOT wrap in ```lua fences. Do NOT repeat any lines. Just the raw continuation.
+A Lua script was truncated mid-generation. You must write ONLY the remaining lines.
 
-CRITICAL RULES:
-- Do NOT use os.*, io.*, require() — they are FORBIDDEN.
-- Do NOT invent functions like _utils.date.toEpoch — they don't exist.
-- Only use: wf, _utils.array, string, table, math, tonumber, tostring, type, pairs, ipairs, pcall, error, assert.
-- Compute dates manually with arithmetic (days_since_epoch, leap year checks, etc.)
+ABSOLUTE RULES:
+1. Do NOT repeat ANY of the lines shown below. They are already written.
+2. Do NOT start a new function or redefine variables that already exist.
+3. Do NOT wrap output in ```lua fences. Output raw Lua code only.
+4. Do NOT use os.*, io.*, require() — FORBIDDEN.
+5. Do NOT invent functions (e.g. _utils.date.toEpoch does not exist).
+6. Continue from the EXACT point where the code was cut off.
 
-Code so far:
-{code_so_far}
+The script has {total_lines} lines so far. Here are the LAST lines:
+```
+{last_lines}
+```
+
+Continue writing from the line AFTER: `{last_line}`
+Output ONLY the new lines that complete the script. Do NOT repeat anything above.
 """

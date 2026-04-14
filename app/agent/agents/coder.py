@@ -12,6 +12,16 @@ from app.agent.rag import retrieve
 logger = logging.getLogger(__name__)
 
 MAX_CONTINUATIONS = 3
+MAX_FORBIDDEN_RETRIES = 2
+
+_FORBIDDEN_PATTERN = re.compile(r'\bos\s*\.\s*(?:time|date|clock|execute|getenv|remove|rename|exit)')
+
+_FORBIDDEN_REGEN_MSG = (
+    "Your code uses os.time/os.date which are FORBIDDEN in this runtime. "
+    "Rewrite the ENTIRE solution without os.* — compute epoch manually using arithmetic: "
+    "count days from 1970 with leap year handling, add month days, then hours/minutes/seconds. "
+    "Return ONLY the corrected code in a ```lua block."
+)
 
 
 def _extract_lua(text: str) -> str | None:
@@ -115,7 +125,7 @@ class CoderAgent(BaseAgent):
         self.system_prompt = prompt
         response = await self.call(user_prompt)
         code = self._extract_and_clean(response, allow_open=True)
-
+        code = await self._sanitize_forbidden(code, user_prompt)
         code = await self._auto_continue(code, prompt)
         return code
 
@@ -135,7 +145,7 @@ class CoderAgent(BaseAgent):
         self.system_prompt = prompt
         response = await self.call(user_prompt)
         code = self._extract_and_clean(response, allow_open=True)
-
+        code = await self._sanitize_forbidden(code, user_prompt)
         code = await self._auto_continue(code, prompt)
         return code
 
@@ -152,8 +162,18 @@ class CoderAgent(BaseAgent):
         )
         response = await self.call(fix_request)
         code = self._extract_and_clean(response, allow_open=True)
-
+        code = await self._sanitize_forbidden(code, user_prompt)
         code = await self._auto_continue(code, self.system_prompt)
+        return code
+
+    async def _sanitize_forbidden(self, code: str, user_prompt: str) -> str:
+        """If code uses os.time/os.date, immediately re-request without wasting Judge iterations."""
+        for attempt in range(MAX_FORBIDDEN_RETRIES):
+            if not _FORBIDDEN_PATTERN.search(code):
+                return code
+            logger.warning("Forbidden os.* detected (attempt %d), re-requesting...", attempt + 1)
+            response = await self.call(user_prompt + "\n\n" + _FORBIDDEN_REGEN_MSG)
+            code = self._extract_and_clean(response, allow_open=True)
         return code
 
     async def _auto_continue(self, code: str, system_prompt: str) -> str:
@@ -163,11 +183,17 @@ class CoderAgent(BaseAgent):
                 break
 
             logger.info("Truncation detected (attempt %d), requesting continuation...", i + 1)
-            continue_request = CONTINUE_PROMPT.format(code_so_far=code)
+
+            lines = code.strip().splitlines()
+            last_n = lines[-10:] if len(lines) > 10 else lines
+            continue_request = CONTINUE_PROMPT.format(
+                total_lines=len(lines),
+                last_lines="\n".join(last_n),
+                last_line=lines[-1].strip() if lines else "",
+            )
             self.system_prompt = system_prompt
             continuation = await self.call(continue_request)
 
-            # Clean continuation: remove fences, remove repeated lines
             cont_clean = continuation.strip()
             for fence in ["```lua", "```"]:
                 if cont_clean.startswith(fence):
@@ -195,14 +221,20 @@ class CoderAgent(BaseAgent):
 
 
 def _deduplicate_continuation(existing: str, continuation: str) -> str:
-    """Remove lines from continuation that duplicate the tail of existing code."""
+    """Remove lines from continuation that duplicate existing code.
+
+    Handles three cases:
+    1. Tail/head overlap (model repeats the end of existing before continuing)
+    2. Whole-block regeneration (model rewrites the entire function from scratch)
+    3. Scattered duplicates (individual lines already present in existing)
+    """
     existing_lines = existing.strip().splitlines()
     cont_lines = continuation.strip().splitlines()
 
     if not cont_lines:
         return ""
 
-    # Find overlap: check if the first N lines of continuation match the last N of existing
+    # --- Case 1: tail/head overlap ---
     max_overlap = min(len(existing_lines), len(cont_lines))
     overlap = 0
     for n in range(1, max_overlap + 1):
@@ -213,5 +245,22 @@ def _deduplicate_continuation(existing: str, continuation: str) -> str:
 
     if overlap > 0:
         cont_lines = cont_lines[overlap:]
+
+    if not cont_lines:
+        return ""
+
+    # --- Case 2: whole-block regeneration detection ---
+    existing_set = {l.strip() for l in existing_lines if l.strip()}
+    non_trivial_cont = [l for l in cont_lines if l.strip() and l.strip() not in ("end", "return", "else", "then")]
+    if non_trivial_cont:
+        dup_count = sum(1 for l in non_trivial_cont if l.strip() in existing_set)
+        dup_ratio = dup_count / len(non_trivial_cont)
+        if dup_ratio > 0.6:
+            # Most of the "continuation" already exists — keep only truly new lines
+            new_lines = []
+            for l in cont_lines:
+                if l.strip() not in existing_set or l.strip() in ("end",):
+                    new_lines.append(l)
+            cont_lines = new_lines
 
     return "\n".join(cont_lines)

@@ -381,6 +381,16 @@
   },
 
   {
+    "category": "example",
+    "text": "Task: Конвертируй время в переменной recallTime в unix-формат (epoch seconds).\nContext: wf.initVariables.recallTime = \"2023-10-15T15:30:00+00:00\"\nIMPORTANT: os.time, os.date are FORBIDDEN. Compute epoch manually.\nLua code:\nlocal function is_leap(y)\n  return (y % 4 == 0 and y % 100 ~= 0) or (y % 400 == 0)\nend\nlocal function days_in_month(m, y)\n  local t = {31, is_leap(y) and 29 or 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}\n  return t[m]\nend\nlocal function iso_to_epoch(iso_str)\n  local year, month, day, hour, min, sec =\n    iso_str:match(\"(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)\")\n  if not year then return nil end\n  year = tonumber(year); month = tonumber(month); day = tonumber(day)\n  hour = tonumber(hour); min = tonumber(min); sec = tonumber(sec)\n  local days = 0\n  for y = 1970, year - 1 do\n    days = days + (is_leap(y) and 366 or 365)\n  end\n  for m = 1, month - 1 do\n    days = days + days_in_month(m, year)\n  end\n  days = days + (day - 1)\n  local epoch = days * 86400 + hour * 3600 + min * 60 + sec\n  local sign, oh, om = iso_str:match(\"([+-])(%d%d):(%d%d)$\")\n  if sign then\n    local offset = tonumber(oh) * 3600 + tonumber(om) * 60\n    if sign == \"+\" then epoch = epoch - offset else epoch = epoch + offset end\n  end\n  return epoch\nend\nlocal iso_time = wf.initVariables.recallTime\nif not iso_time or not iso_time:match(\"^%d%d%d%d%-\") then\n  return nil\nend\nreturn iso_to_epoch(iso_time)\nExpected: 1697383800"
+  },
+
+  {
+    "category": "pattern",
+    "text": "Common Lua pattern: Manual date/time to Unix epoch conversion.\nIMPORTANT: os.time() and os.date() are FORBIDDEN in this runtime.\nAlways compute epoch manually using arithmetic:\n1. Count days from 1970 to target year (account for leap years)\n2. Add days for months (account for Feb in leap years)\n3. Add remaining days, hours, minutes, seconds\n4. Parse and apply timezone offset\n\nHelper functions needed:\n- is_leap(y): (y%4==0 and y%100~=0) or (y%400==0)\n- days_in_month(m,y): lookup table {31,28/29,31,30,...}\n- iso_to_epoch(iso_str): parse with :match(), sum days*86400+h*3600+m*60+s, apply offset"
+  },
+
+  {
     "category": "pattern",
     "text": "Common Lua pattern: Safe deep field access with fallback.\nlocal function safeGet(obj, ...)\n  local current = obj\n  for _, key in ipairs({...}) do\n    if type(current) ~= \"table\" then return nil end\n    current = current[key]\n  end\n  return current\nend\nUsage: local city = safeGet(wf.vars, \"user\", \"address\", \"city\") or \"unknown\""
   },
